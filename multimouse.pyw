@@ -21,10 +21,6 @@ try:
 except ImportError:
     tb = None
 
-try:
-    import webview
-except ImportError:
-    webview = None
 
 import pyautogui
 from pynput import keyboard, mouse
@@ -1705,7 +1701,7 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 # Main window
 # -----------------------------------------------------------------------------
 class MultiMouseApp:
-    def __init__(self, build_main_ui: bool = True):
+    def __init__(self):
         data = load_combined_data() or {}
         lang = data.get("language", CURRENT_LANG)
         globals()["CURRENT_LANG"] = lang
@@ -1734,14 +1730,9 @@ class MultiMouseApp:
         self.lang_var = tk.StringVar(value=lang)
         self.dark_var = tk.BooleanVar(value=dark_mode)
 
-        self.has_main_ui = build_main_ui
-        if build_main_ui:
-            self._build_ui()
+        self._build_ui()
         self._apply_theme(initial=True)
-        if build_main_ui:
-            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        else:
-            self.root.withdraw()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
         wrap = ttk.Frame(self.root, padding=16)
@@ -1872,18 +1863,14 @@ class MultiMouseApp:
             try:
                 child_window.destroy()
             finally:
-                if self.has_main_ui:
-                    self.root.deiconify()
-                    try:
-                        self.root.lift()
-                    except Exception:
-                        pass
+                self.root.deiconify()
+                try:
+                    self.root.lift()
+                except Exception:
+                    pass
         child_window.protocol("WM_DELETE_WINDOW", on_close)
         child_window.wait_window()
-        if self.has_main_ui:
-            self.root.deiconify()
-        else:
-            self.root.withdraw()
+        self.root.deiconify()
 
     def open_autosnap(self):
         w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
@@ -1902,49 +1889,9 @@ class MultiMouseApp:
         self._show_child_modal(w)
         mark_dirty("autotiktok")
 
-
-class WebAPI:
-    def __init__(self, app: 'MultiMouseApp'):
-        self.app = app
-
-    # methods exposed to JS
-    def autosnap(self):
-        self.app.root.after(0, self.app.open_autosnap)
-
-    def automouse(self):
-        self.app.root.after(0, self.app.open_automouse)
-
-    def autotiktok(self):
-        self.app.root.after(0, self.app.open_autotiktok)
-
-    def save(self):
-        self.app.root.after(0, self.app.save_combined_settings)
-
-    def load(self):
-        self.app.root.after(0, self.app.load_combined_settings)
-
-    def toggle_theme(self):
-        def _toggle():
-            self.app.dark_var.set(not self.app.dark_var.get())
-            self.app._apply_theme()
-        self.app.root.after(0, _toggle)
-
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    html_file = Path(res_path("ui", "index.html"))
-    use_web = webview is not None and html_file.exists()
-    app = MultiMouseApp(build_main_ui=not use_web)
-    if use_web:
-        try:
-            api = WebAPI(app)
-            webview.create_window(tr("app_title"), str(html_file), js_api=api)
-            webview.start(gui="tk")
-        except Exception:
-            app.root.deiconify()
-            if not app.has_main_ui:
-                app._build_ui()
-            app.root.mainloop()
-    else:
-        app.root.mainloop()
+    app = MultiMouseApp()
+    app.root.mainloop()
