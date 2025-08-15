@@ -1,5 +1,28 @@
-body { font-family: Arial, sans-serif; background: #f0f0f0; text-align: center; }
-h1 { margin-top: 40px; }
-.menu { margin: 20px auto; }
-button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; background: #007bff; color: #fff; font-size: 16px; cursor: pointer; }
-button:hover { background: #0056b3; }
+body {
+  font-family: Arial, sans-serif;
+  background: #f0f0f0;
+  text-align: center;
+}
+
+h1 {
+  margin-top: 40px;
+}
+
+.menu {
+  margin: 20px auto;
+}
+
+button {
+  padding: 10px 20px;
+  margin: 5px;
+  border: none;
+  border-radius: 4px;
+  background: #007bff;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #0056b3;
+}
