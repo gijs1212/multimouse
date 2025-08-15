@@ -76,6 +76,11 @@ AUTOTIKTOK_DIR = BASE_DIR / "AutoTikTok"
 for d in (BASE_DIR, AUTOSNAP_DIR, AUTOMOUSE_DIR, AUTOTIKTOK_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
+# Extra opslaglocatie voor gecombineerde instellingen
+EXTRA_SAVE_DIR = Path("bestanden/multimouse/kalibratie")
+EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+EXTRA_SAVE_FILE = EXTRA_SAVE_DIR / "instellingen.txt"
+
 # .ico bestanden naast dit .pyw
 APP_ICON_MM = res_path("inputmouse_92614.ico")                  # muis icoon (hoofdmenu)
 APP_ICON_SNAP = res_path("snapchat_black_logo_icon_147080.ico") # snapchat icoon
@@ -114,6 +119,7 @@ LANGS = {
         "move_mouse_to": "Beweeg je muis naar:\n{target}",
         "dark_mode": "Donkere modus",
         "language": "Taal",
+        "save_settings": "Instellingen opslaan",
         "play_delay": "Delay tussen herhalingen (seconden)",
         "waiting_for_insert": "Wachten op INSERT",
         "press_insert_to_start": "Druk op INSERT om te starten (ESC annuleert)",
@@ -175,6 +181,7 @@ LANGS = {
         "move_mouse_to": "Move your mouse to:\n{target}",
         "dark_mode": "Dark mode",
         "language": "Language",
+        "save_settings": "Save settings",
         "play_delay": "Delay between repeats (seconds)",
         "waiting_for_insert": "Waiting for INSERT",
         "press_insert_to_start": "Press INSERT to start (ESC to cancel)",
@@ -493,10 +500,10 @@ def calibrate_position_snap(root: tk.Tk, target_label: str):
         _exit_calibration_mini(root, prev_state)
 
 class AutoSnapWindow(tk.Toplevel, MiniMixin):
-    def __init__(self, master, get_lang, set_lang):
+    def __init__(self, master, get_lang, set_lang, save_combined):
         tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
-        self.get_lang = get_lang; self.set_lang = set_lang
+        self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autosnap")); set_window_icon(self, APP_ICON_SNAP)
         self.geometry("900x1040"); self.resizable(True, True); self.attributes("-topmost", True)
 
@@ -562,8 +569,9 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self._build_responder(self.responder_frame)
         self._build_combi(self.combi_frame)
 
+        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined).grid(row=2, column=0, sticky="e", pady=(0,5))
         self.status_lbl = ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic"))
-        self.status_lbl.grid(row=2, column=0, sticky="w")
+        self.status_lbl.grid(row=3, column=0, sticky="w")
 
         self._refresh_mode()
 
@@ -1149,10 +1157,10 @@ def save_tt_config(cfg):
     AUTOTIKTOK_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 class AutoTikTokWindow(tk.Toplevel, MiniMixin):
-    def __init__(self, master, get_lang, set_lang):
+    def __init__(self, master, get_lang, set_lang, save_combined):
         tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
-        self.get_lang = get_lang; self.set_lang = set_lang
+        self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autotiktok")); set_window_icon(self, APP_ICON_TT)
         self.geometry("740x780"); self.resizable(True, True); self.attributes("-topmost", True)
 
@@ -1202,7 +1210,8 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
         ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
 
         ttk.Button(wrap, text=" " + tr("start"), command=self._start).grid(row=4, column=0, pady=12, sticky="ew")
-        ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic")).grid(row=5, column=0, sticky="w")
+        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined).grid(row=5, column=0, pady=(0,8), sticky="e")
+        ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic")).grid(row=6, column=0, sticky="w")
 
     def _full_calibration(self):
         sequence = [("upload", "Upload"), ("select_video", tr("select_video")),
@@ -1638,8 +1647,10 @@ class MultiMouseApp:
 
         self.lang_var = tk.StringVar(value=CURRENT_LANG)
         self.dark_var = tk.BooleanVar(value=True)
+        self.dirty = False
 
         self._build_ui(); self._apply_theme(initial=True)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
         wrap = ttk.Frame(self.root, padding=16); wrap.grid(row=0, column=0, sticky="nsew")
@@ -1666,8 +1677,11 @@ class MultiMouseApp:
         chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
         chk.grid(row=0, column=3, padx=4, sticky="w")
 
+        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(row=3, column=0, columnspan=3, pady=8, sticky="ew")
+
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
+        self.dirty = True
         for w in list(self.root.children.values()): w.destroy()
         self._build_ui(); self._apply_theme()
 
@@ -1692,6 +1706,29 @@ class MultiMouseApp:
                 self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
                 self.style.map("TButton", foreground=[("disabled", "#888888")])
             except Exception: pass
+        if not initial:
+            self.dirty = True
+
+    def save_combined_settings(self):
+        data = {
+            "language": self.lang_var.get(),
+            "dark_mode": bool(self.dark_var.get()),
+            "autosnap": load_snap_config(),
+            "autotiktok": load_tt_config(),
+        }
+        try:
+            EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            messagebox.showinfo(tr("save_settings"), tr("saved"))
+            self.dirty = False
+        except Exception:
+            messagebox.showerror(tr("save_settings"), "Kon instellingen niet opslaan")
+
+    def _on_close(self):
+        if self.dirty:
+            if messagebox.askyesno(tr("save_settings"), "Wilt u uw data opslaan?"):
+                self.save_combined_settings()
+        self.root.destroy()
 
     def _show_child_modal(self, child_window: tk.Toplevel):
         # hoofdmenu blijft op achtergrond (niet topmost)
@@ -1710,9 +1747,10 @@ class MultiMouseApp:
         self.root.deiconify()
 
     def open_autosnap(self):
-        w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
+        w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_SNAP)
         self._show_child_modal(w)
+        self.dirty = True
 
     def open_automouse(self):
         w = AutoMouseWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
@@ -1720,9 +1758,10 @@ class MultiMouseApp:
         self._show_child_modal(w)
 
     def open_autotiktok(self):
-        w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
+        w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_TT)
         self._show_child_modal(w)
+        self.dirty = True
 
 # -----------------------------------------------------------------------------
 # Main
