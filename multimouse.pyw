@@ -86,6 +86,13 @@ EXTRA_SAVE_DIR = Path("bestanden/multimouse/kalibratie")
 EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
 EXTRA_SAVE_FILE = EXTRA_SAVE_DIR / "instellingen.txt"
 
+# globale vlaggen voor niet-opgeslagen onderdelen
+DIRTY_FLAGS = set()
+
+def mark_dirty(section: str):
+    """Markeer een onderdeel als aangepast zodat we bij afsluiten kunnen vragen om op te slaan."""
+    DIRTY_FLAGS.add(section)
+
 # .ico bestanden naast dit .pyw
 APP_ICON_MM = res_path("inputmouse_92614.ico")                  # muis icoon (hoofdmenu)
 APP_ICON_SNAP = res_path("snapchat_black_logo_icon_147080.ico") # snapchat icoon
@@ -458,8 +465,10 @@ def load_snap_config():
         except Exception: pass
     return DEFAULT_SNAP_CONFIG.copy()
 
-def save_snap_config(cfg):
+def save_snap_config(cfg, mark=True):
     AUTOSNAP_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    if mark:
+        mark_dirty("autosnap")
 
 # --- kalibratie dialoog (countdown 3->1) + mini-mode en restore groot ---
 def calibrate_position_snap(root: tk.Tk, target_label: str):
@@ -1195,8 +1204,10 @@ def load_tt_config():
         except Exception: pass
     return DEFAULT_TT_CONFIG.copy()
 
-def save_tt_config(cfg):
+def save_tt_config(cfg, mark=True):
     AUTOTIKTOK_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    if mark:
+        mark_dirty("autotiktok")
 
 
 def load_combined_data():
@@ -1207,10 +1218,10 @@ def load_combined_data():
         data = json.loads(EXTRA_SAVE_FILE.read_text(encoding="utf-8"))
         snap = data.get("autosnap")
         if isinstance(snap, dict):
-            save_snap_config(snap)
+            save_snap_config(snap, mark=False)
         tt = data.get("autotiktok")
         if isinstance(tt, dict):
-            save_tt_config(tt)
+            save_tt_config(tt, mark=False)
         return data
     except Exception:
         return None
@@ -1722,7 +1733,6 @@ class MultiMouseApp:
 
         self.lang_var = tk.StringVar(value=lang)
         self.dark_var = tk.BooleanVar(value=dark_mode)
-        self.dirty = False
 
         self._build_ui()
         self._apply_theme(initial=True)
@@ -1779,7 +1789,7 @@ class MultiMouseApp:
         )
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
-        self.dirty = True
+        mark_dirty("language")
         for w in list(self.root.children.values()):
             w.destroy()
         self._build_ui()
@@ -1807,7 +1817,7 @@ class MultiMouseApp:
                 self.style.map("TButton", foreground=[("disabled", "#888888")])
             except Exception: pass
         if not initial:
-            self.dirty = True
+            mark_dirty("theme")
 
     def save_combined_settings(self):
         data = {
@@ -1820,7 +1830,7 @@ class MultiMouseApp:
             EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
             EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
             messagebox.showinfo(tr("save_settings"), tr("saved"))
-            self.dirty = False
+            DIRTY_FLAGS.clear()
         except Exception:
             messagebox.showerror(tr("save_settings"), "Kon instellingen niet opslaan")
 
@@ -1834,11 +1844,12 @@ class MultiMouseApp:
         self._switch_lang(self.lang_var.get())
         self._apply_theme()
         messagebox.showinfo(tr("load_settings"), tr("loaded"))
-        self.dirty = False
+        DIRTY_FLAGS.clear()
 
     def _on_close(self):
-        if self.dirty:
-            msg = ("Wilt u uw data opslaan?\n" "Niet opgeslagen: kalibratie, aantal snaps, tijden & personen, TikTok beschrijving, taal, thema")
+        if DIRTY_FLAGS:
+            missing = ", ".join(sorted(DIRTY_FLAGS))
+            msg = "Wilt u uw data opslaan?\nNiet opgeslagen: " + missing
             detail = "Wordt opgeslagen: kalibratie, aantal snaps, tijden met personen, TikTok beschrijving, taal en thema"
             if messagebox.askyesno(tr("save_settings"), msg, detail=detail):
                 self.save_combined_settings()
@@ -1869,7 +1880,7 @@ class MultiMouseApp:
         w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_SNAP)
         self._show_child_modal(w)
-        self.dirty = True
+        mark_dirty("autosnap")
 
     def open_automouse(self):
         w = AutoMouseWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
@@ -1880,7 +1891,7 @@ class MultiMouseApp:
         w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_TT)
         self._show_child_modal(w)
-        self.dirty = True
+        mark_dirty("autotiktok")
 
 
 class WebAPI:
