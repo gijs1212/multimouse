@@ -1705,7 +1705,7 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 # Main window
 # -----------------------------------------------------------------------------
 class MultiMouseApp:
-    def __init__(self):
+    def __init__(self, build_main_ui: bool = True):
         data = load_combined_data() or {}
         lang = data.get("language", CURRENT_LANG)
         globals()["CURRENT_LANG"] = lang
@@ -1734,9 +1734,14 @@ class MultiMouseApp:
         self.lang_var = tk.StringVar(value=lang)
         self.dark_var = tk.BooleanVar(value=dark_mode)
 
-        self._build_ui()
+        self.has_main_ui = build_main_ui
+        if build_main_ui:
+            self._build_ui()
         self._apply_theme(initial=True)
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        if build_main_ui:
+            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        else:
+            self.root.withdraw()
 
     def _build_ui(self):
         wrap = ttk.Frame(self.root, padding=16)
@@ -1867,14 +1872,18 @@ class MultiMouseApp:
             try:
                 child_window.destroy()
             finally:
-                self.root.deiconify()
-                try:
-                    self.root.lift()
-                except Exception:
-                    pass
+                if self.has_main_ui:
+                    self.root.deiconify()
+                    try:
+                        self.root.lift()
+                    except Exception:
+                        pass
         child_window.protocol("WM_DELETE_WINDOW", on_close)
         child_window.wait_window()
-        self.root.deiconify()
+        if self.has_main_ui:
+            self.root.deiconify()
+        else:
+            self.root.withdraw()
 
     def open_autosnap(self):
         w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
@@ -1923,14 +1932,11 @@ class WebAPI:
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        app = MultiMouseApp()
         html_file = Path(res_path("ui", "index.html"))
-        if webview and html_file.exists():
+        use_web = webview and html_file.exists()
+        app = MultiMouseApp(build_main_ui=not use_web)
+        if use_web:
             api = WebAPI(app)
-            try:
-                app.root.withdraw()
-            except Exception:
-                pass
             webview.create_window(tr("app_title"), str(html_file))
             webview.start(api=api, gui="tk")
         else:
