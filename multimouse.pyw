@@ -638,7 +638,7 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.times_list = tk.Listbox(sch, height=6)
         self.times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
         self.times_list.bind("<<ListboxSelect>>", lambda e: self._load_people_for_selected_time())
-        self.times_list.bind("<Double-Button-1>", lambda e: self._show_time_people())
+        self.times_list.bind("<Double-Button-1>", self._show_time_people)
         ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
 
         self.time_people_vars = [tk.BooleanVar(value=False) for _ in range(8)]
@@ -716,7 +716,7 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.combi_times_list = tk.Listbox(sch, height=6)
         self.combi_times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
         self.combi_times_list.bind("<<ListboxSelect>>", lambda e: self._combi_load_people_for_selected_time())
-        self.combi_times_list.bind("<Double-Button-1>", lambda e: self._combi_show_time_people())
+        self.combi_times_list.bind("<Double-Button-1>", self._combi_show_time_people)
         ttk.Button(sch, text=tr("remove_time"), command=self._combi_remove_time).grid(row=1, column=2, padx=6, sticky="nw")
 
         self.combi_people_vars = [tk.BooleanVar(value=False) for _ in range(8)]
@@ -817,9 +817,14 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.time_people[sel] = [bool(v.get()) for v in self.time_people_vars]
         self.cfg["combi_time_people"] = self.time_people; save_snap_config(self.cfg)
 
-    def _show_time_people(self):
+    def _show_time_people(self, event=None):
+        if event is not None:
+            idx = event.widget.nearest(event.y)
+            event.widget.selection_clear(0, tk.END)
+            event.widget.selection_set(idx)
         sel = self._selected_time()
-        if not sel: return
+        if not sel:
+            return
         mask = self.time_people.get(sel, [False]*8)
         people = [f"P{i+1}" for i, on in enumerate(mask) if on]
         text = ", ".join(people) if people else "Geen"
@@ -1086,9 +1091,14 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.combi_time_people[sel] = [bool(v.get()) for v in self.combi_people_vars]
         self.cfg["combi_time_people"] = self.combi_time_people; save_snap_config(self.cfg)
 
-    def _combi_show_time_people(self):
+    def _combi_show_time_people(self, event=None):
+        if event is not None:
+            idx = event.widget.nearest(event.y)
+            event.widget.selection_clear(0, tk.END)
+            event.widget.selection_set(idx)
         sel = self._combi_selected_time()
-        if not sel: return
+        if not sel:
+            return
         mask = self.combi_time_people.get(sel, [False]*8)
         people = [f"P{i+1}" for i, on in enumerate(mask) if on]
         text = ", ".join(people) if people else "Geen"
