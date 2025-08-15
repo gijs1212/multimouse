@@ -21,6 +21,11 @@ try:
 except ImportError:
     tb = None
 
+try:
+    import webview
+except ImportError:
+    webview = None
+
 import pyautogui
 from pynput import keyboard, mouse
 from pynput.keyboard import Key
@@ -1836,12 +1841,47 @@ class MultiMouseApp:
         self._show_child_modal(w)
         self.dirty = True
 
+
+class WebAPI:
+    def __init__(self, app: 'MultiMouseApp'):
+        self.app = app
+
+    # methods exposed to JS
+    def autosnap(self):
+        self.app.open_autosnap()
+
+    def automouse(self):
+        self.app.open_automouse()
+
+    def autotiktok(self):
+        self.app.open_autotiktok()
+
+    def save(self):
+        self.app.save_combined_settings()
+
+    def load(self):
+        self.app.load_combined_settings()
+
+    def toggle_theme(self):
+        self.app.dark_var.set(not self.app.dark_var.get())
+        self.app._apply_theme()
+
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
         app = MultiMouseApp()
-        app.root.mainloop()
+        html_file = Path(res_path("ui", "index.html"))
+        if webview and html_file.exists():
+            api = WebAPI(app)
+            try:
+                app.root.withdraw()
+            except Exception:
+                pass
+            window = webview.create_window(tr("app_title"), str(html_file))
+            webview.start(api=api, gui="tk")
+        else:
+            app.root.mainloop()
     except KeyboardInterrupt:
         pass
