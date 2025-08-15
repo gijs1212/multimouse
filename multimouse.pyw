@@ -1909,23 +1909,25 @@ class WebAPI:
 
     # methods exposed to JS
     def autosnap(self):
-        self.app.open_autosnap()
+        self.app.root.after(0, self.app.open_autosnap)
 
     def automouse(self):
-        self.app.open_automouse()
+        self.app.root.after(0, self.app.open_automouse)
 
     def autotiktok(self):
-        self.app.open_autotiktok()
+        self.app.root.after(0, self.app.open_autotiktok)
 
     def save(self):
-        self.app.save_combined_settings()
+        self.app.root.after(0, self.app.save_combined_settings)
 
     def load(self):
-        self.app.load_combined_settings()
+        self.app.root.after(0, self.app.load_combined_settings)
 
     def toggle_theme(self):
-        self.app.dark_var.set(not self.app.dark_var.get())
-        self.app._apply_theme()
+        def _toggle():
+            self.app.dark_var.set(not self.app.dark_var.get())
+            self.app._apply_theme()
+        self.app.root.after(0, _toggle)
 
 # -----------------------------------------------------------------------------
 # Main
