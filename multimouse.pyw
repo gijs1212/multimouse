@@ -1682,8 +1682,16 @@ class MultiMouseApp:
 
         self.root.title(tr("app_title"))
         self.root.geometry("900x560"); self.root.resizable(True, True)
-        self.root.attributes("-topmost", False)
+        self.root.attributes("-topmost", True)
         set_window_icon(self.root, APP_ICON_MM)
+
+        # button icons
+        try:
+            self.icon_mouse = ctk.CTkImage(Image.open(APP_ICON_MM), size=(20,20))
+            self.icon_snap = ctk.CTkImage(Image.open(APP_ICON_SNAP), size=(20,20))
+            self.icon_tiktok = ctk.CTkImage(Image.open(APP_ICON_TT), size=(20,20))
+        except Exception:
+            self.icon_mouse = self.icon_snap = self.icon_tiktok = None
 
         self.lang_var = tk.StringVar(value=lang)
         self.dark_var = tk.BooleanVar(value=dark_mode)
@@ -1700,9 +1708,9 @@ class MultiMouseApp:
         title = ctk.CTkLabel(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
         title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
 
-        ctk.CTkButton(wrap, text=" " + tr("open_autosnap"),  command=self.open_autosnap).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
-        ctk.CTkButton(wrap, text=" " + tr("open_automouse"), command=self.open_automouse).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
-        ctk.CTkButton(wrap, text=" " + tr("open_autotiktok"), command=self.open_autotiktok).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autosnap"), image=self.icon_snap, command=self.open_autosnap, compound="left").grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_automouse"), image=self.icon_mouse, command=self.open_automouse, compound="left").grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autotiktok"), image=self.icon_tiktok, command=self.open_autotiktok, compound="left").grid(row=1, column=2, padx=10, pady=8, sticky="ew")
 
         bar = ctk.CTkFrame(wrap)
         bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
@@ -1726,7 +1734,7 @@ class MultiMouseApp:
         for w in list(self.root.children.values()): w.destroy()
         self._build_ui(); self._apply_theme()
 
-    def _apply_theme(self, initial=False):
+    def _apply_theme(self, initial=False, mark_dirty=True):
         is_dark = bool(self.dark_var.get())
         ctk.set_appearance_mode("dark" if is_dark else "light")
         bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
@@ -1744,8 +1752,22 @@ class MultiMouseApp:
             self.style.configure("TLabelframe", background=bg, foreground=fg)
             self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
             self.style.map("TButton", foreground=[("disabled", "#888888")])
-        except Exception: pass
-        if not initial:
+        except Exception:
+            pass
+        try:
+            sel_bg = "#444444" if is_dark else "#cccccc"
+            def style_listboxes(parent):
+                for w in parent.winfo_children():
+                    if isinstance(w, tk.Listbox):
+                        w.configure(bg=bg, fg=fg, selectbackground=sel_bg, selectforeground=fg)
+                    try:
+                        style_listboxes(w)
+                    except Exception:
+                        pass
+            style_listboxes(self.root)
+        except Exception:
+            pass
+        if mark_dirty and not initial:
             self.dirty = True
 
     def save_combined_settings(self):
@@ -1796,34 +1818,50 @@ class MultiMouseApp:
 
     def _show_child_modal(self, child_window: ctk.CTkToplevel):
         # hoofdmenu blijft op achtergrond (niet topmost)
-        try: self.root.attributes("-topmost", False)
-        except Exception: pass
+        try:
+            self.root.attributes("-topmost", False)
+        except Exception:
+            pass
 
         self.root.withdraw()
+
         def on_close():
-            try: child_window.destroy()
+            try:
+                child_window.destroy()
             finally:
                 self.root.deiconify()
-                try: self.root.lift()
-                except Exception: pass
+                try:
+                    self.root.lift()
+                    self.root.attributes("-topmost", True)
+                except Exception:
+                    pass
+
         child_window.protocol("WM_DELETE_WINDOW", on_close)
         child_window.wait_window()
         self.root.deiconify()
+        try:
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
 
     def open_autosnap(self):
         w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_SNAP)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
         self.dirty = True
 
     def open_automouse(self):
         w = AutoMouseWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
         set_window_icon(w, APP_ICON_MM)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
 
     def open_autotiktok(self):
         w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_TT)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
         self.dirty = True
 
