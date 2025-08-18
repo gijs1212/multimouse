@@ -554,9 +554,12 @@ def calibrate_position_snap(root: tk.Tk, target_label: str):
     finally:
         _exit_calibration_mini(root, prev_state)
 
-class AutoSnapWindow(tk.Toplevel, MiniMixin):
+class AutoSnapWindow((ctk.CTkToplevel if ctk else tk.Toplevel), MiniMixin):
     def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+        if ctk:
+            ctk.CTkToplevel.__init__(self, master)
+        else:
+            tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autosnap")); set_window_icon(self, APP_ICON_SNAP)
@@ -604,7 +607,12 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
 
     # ---------- UI ----------
     def _build_ui(self):
-        wrap = ttk.Frame(self, padding=20); wrap.pack(fill="both", expand=True)
+        if ctk:
+            wrap = ctk.CTkFrame(self)
+            wrap.pack(fill="both", expand=True, padx=20, pady=20)
+        else:
+            wrap = ttk.Frame(self, padding=20)
+            wrap.pack(fill="both", expand=True)
         wrap.columnconfigure(0, weight=1)
 
         mode_frame = ttk.LabelFrame(wrap, text=tr("mode"), padding=12)
@@ -1264,9 +1272,12 @@ def load_combined_data(path: Path = EXTRA_SAVE_FILE):
     except Exception:
         return None
 
-class AutoTikTokWindow(tk.Toplevel, MiniMixin):
+class AutoTikTokWindow((ctk.CTkToplevel if ctk else tk.Toplevel), MiniMixin):
     def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+        if ctk:
+            ctk.CTkToplevel.__init__(self, master)
+        else:
+            tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang
         self.set_lang = set_lang
@@ -1288,7 +1299,12 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
         self._build_ui()
 
     def _build_ui(self):
-        wrap = ttk.Frame(self, padding=20); wrap.grid(row=0, column=0, sticky="nsew")
+        if ctk:
+            wrap = ctk.CTkFrame(self)
+            wrap.pack(fill="both", expand=True, padx=20, pady=20)
+        else:
+            wrap = ttk.Frame(self, padding=20)
+            wrap.pack(fill="both", expand=True)
         wrap.columnconfigure(0, weight=1)
 
         ttk.Label(wrap, text=tr("autotiktok"), font=("Segoe UI", 20, "bold")).grid(row=0, column=0, pady=(0, 16))
@@ -1557,9 +1573,12 @@ class Player:
                 if self._esc_listener: self._esc_listener.stop()
             except Exception: pass
 
-class AutoMouseWindow(tk.Toplevel, MiniMixin):
+class AutoMouseWindow((ctk.CTkToplevel if ctk else tk.Toplevel), MiniMixin):
     def __init__(self, master, get_lang, set_lang):
-        tk.Toplevel.__init__(self, master)
+        if ctk:
+            ctk.CTkToplevel.__init__(self, master)
+        else:
+            tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang
         self.title(tr("automouse")); set_window_icon(self, APP_ICON_MM)
@@ -1600,7 +1619,12 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
         return result["val"]
 
     def _build_ui(self):
-        wrap = ttk.Frame(self, padding=20); wrap.grid(row=0, column=0, sticky="nsew")
+        if ctk:
+            wrap = ctk.CTkFrame(self)
+            wrap.pack(fill="both", expand=True, padx=20, pady=20)
+        else:
+            wrap = ttk.Frame(self, padding=20)
+            wrap.pack(fill="both", expand=True)
         for r in range(9): wrap.rowconfigure(r, weight=0)
         wrap.columnconfigure(0, weight=1); wrap.columnconfigure(1, weight=1)
 
