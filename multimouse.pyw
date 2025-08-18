@@ -17,6 +17,13 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 try:
+    import customtkinter as ctk
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
+except Exception:
+    ctk = None
+
+try:
     import ttkbootstrap as tb
 except ImportError:
     tb = None
@@ -119,6 +126,8 @@ def _add_hover_animation(btn):
     btn.bind("<Leave>", _on_leave)
 
 def make_button(master, **kwargs):
+    if ctk and isinstance(master, ctk.CTkBaseClass):
+        return ctk.CTkButton(master, **kwargs)
     if tb:
         bs = kwargs.pop("bootstyle", "secondary round")
         return tb.Button(master, bootstyle=bs, **kwargs)
@@ -1742,8 +1751,11 @@ class MultiMouseApp:
 
         self.root = None
         self.style = None
-        self.using_tb = tb is not None
-        if self.using_tb:
+        self.using_tb = False
+        if ctk:
+            self.root = ctk.CTk()
+        elif tb is not None:
+            self.using_tb = True
             self.root = tb.Window(themename="darkly")
             self.style = tb.Style()
         else:
@@ -1795,54 +1807,100 @@ class MultiMouseApp:
             pass
 
     def _build_ui(self):
-        wrap = ttk.Frame(self.root, padding=16)
-        wrap.grid(row=0, column=0, sticky="nsew")
-        for c in range(3):
-            wrap.columnconfigure(c, weight=1)
+        if ctk:
+            wrap = ctk.CTkFrame(self.root, corner_radius=0)
+            wrap.grid(row=0, column=0, sticky="nsew")
+            for c in range(3):
+                wrap.columnconfigure(c, weight=1)
 
-        title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
-        title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
+            title = ctk.CTkLabel(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+            title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
 
-        make_button(
-            wrap,
-            text=" " + tr("open_autosnap"),
-            command=self.open_autosnap,
-        ).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
-        make_button(
-            wrap,
-            text=" " + tr("open_automouse"),
-            command=self.open_automouse,
-        ).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
-        make_button(
-            wrap,
-            text=" " + tr("open_autotiktok"),
-            command=self.open_autotiktok,
-        ).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autosnap"),
+                command=self.open_autosnap,
+            ).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_automouse"),
+                command=self.open_automouse,
+            ).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autotiktok"),
+                command=self.open_autotiktok,
+            ).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
 
-        bar = ttk.Frame(wrap, padding=(6, 4))
-        bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
-        for c in range(4):
-            bar.columnconfigure(c, weight=1)
-        small_font = ("Segoe UI", 8)
+            bar = ctk.CTkFrame(wrap)
+            bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+            for c in range(4):
+                bar.columnconfigure(c, weight=1)
+            small_font = ("Segoe UI", 10)
 
-        ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
-        lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
-        lang.grid(row=0, column=1, padx=4, sticky="w")
-        try:
-            lang["menu"].configure(font=small_font)
-        except Exception:
-            pass
+            ctk.CTkLabel(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+            lang = ctk.CTkOptionMenu(bar, variable=self.lang_var, values=["nl", "en"], command=self._switch_lang)
+            lang.grid(row=0, column=1, padx=4, sticky="w")
 
-        ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
-        chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
-        chk.grid(row=0, column=3, padx=4, sticky="w")
+            ctk.CTkLabel(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+            chk = ctk.CTkCheckBox(bar, variable=self.dark_var, command=self._apply_theme, text="")
+            chk.grid(row=0, column=3, padx=4, sticky="w")
 
-        make_button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(
-            row=3, column=0, columnspan=3, pady=(0, 4), sticky="ew"
-        )
-        make_button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(
-            row=4, column=0, columnspan=3, pady=8, sticky="ew"
-        )
+            make_button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(
+                row=3, column=0, columnspan=3, pady=(0, 4), sticky="ew"
+            )
+            make_button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(
+                row=4, column=0, columnspan=3, pady=8, sticky="ew"
+            )
+        else:
+            wrap = ttk.Frame(self.root, padding=16)
+            wrap.grid(row=0, column=0, sticky="nsew")
+            for c in range(3):
+                wrap.columnconfigure(c, weight=1)
+
+            title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+            title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
+
+            make_button(
+                wrap,
+                text=" " + tr("open_autosnap"),
+                command=self.open_autosnap,
+            ).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_automouse"),
+                command=self.open_automouse,
+            ).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autotiktok"),
+                command=self.open_autotiktok,
+            ).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+
+            bar = ttk.Frame(wrap, padding=(6, 4))
+            bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+            for c in range(4):
+                bar.columnconfigure(c, weight=1)
+            small_font = ("Segoe UI", 8)
+
+            ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+            lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
+            lang.grid(row=0, column=1, padx=4, sticky="w")
+            try:
+                lang["menu"].configure(font=small_font)
+            except Exception:
+                pass
+
+            ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+            chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
+            chk.grid(row=0, column=3, padx=4, sticky="w")
+
+            make_button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(
+                row=3, column=0, columnspan=3, pady=(0, 4), sticky="ew"
+            )
+            make_button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(
+                row=4, column=0, columnspan=3, pady=8, sticky="ew"
+            )
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
         mark_dirty("language")
@@ -1853,7 +1911,9 @@ class MultiMouseApp:
 
     def _apply_theme(self, initial=False):
         is_dark = bool(self.dark_var.get())
-        if self.using_tb:
+        if ctk:
+            ctk.set_appearance_mode("dark" if is_dark else "light")
+        elif self.using_tb:
             target = "darkly" if is_dark else "flatly"
             try: self.style.theme_use(target)
             except Exception: pass
