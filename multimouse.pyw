@@ -1731,8 +1731,10 @@ class MultiMouseApp:
         ctk.set_appearance_mode("dark" if is_dark else "light")
         bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
         try:
-            self.root.configure(bg=bg)
-        except Exception: pass
+            # use CTk's fg_color so foreground text isn't white on a white window
+            self.root.configure(fg_color=bg)
+        except Exception:
+            pass
         try:
             self.style.configure(".", background=bg, foreground=fg)
             self.style.configure("TLabel", background=bg, foreground=fg)
