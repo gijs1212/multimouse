@@ -37,6 +37,15 @@ def set_app_user_model_id(id_str="com.gijs.multimouse"):
             pass
 set_app_user_model_id("com.gijs.multimouse")
 
+# verberg consolevenster bij starten zodat er geen terminal opent
+def hide_console():
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+        except Exception:
+            pass
+hide_console()
+
 pyautogui.FAILSAFE = False
 try:
     pyautogui.PAUSE = 0
@@ -1766,7 +1775,12 @@ class MultiMouseApp:
         self.root.title(tr("app_title"))
         self.root.geometry("900x560")
         self.root.resizable(True, True)
-        self.root.attributes("-topmost", False)
+        self.root.attributes("-topmost", True)
+        self.root.lift()
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
         set_window_icon(self.root, APP_ICON_MM)
 
         self.lang_var = tk.StringVar(value=lang)
@@ -1775,6 +1789,10 @@ class MultiMouseApp:
         self._build_ui()
         self._apply_theme(initial=True)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
 
     def _build_ui(self):
         wrap = ttk.Frame(self.root, padding=16)
@@ -1899,12 +1917,6 @@ class MultiMouseApp:
         self.root.destroy()
 
     def _show_child_modal(self, child_window: tk.Toplevel):
-        # hoofdmenu blijft op achtergrond (niet topmost)
-        try:
-            self.root.attributes("-topmost", False)
-        except Exception:
-            pass
-
         self.root.withdraw()
         def on_close():
             try:
@@ -1912,12 +1924,24 @@ class MultiMouseApp:
             finally:
                 self.root.deiconify()
                 try:
+                    self.root.attributes("-topmost", True)
                     self.root.lift()
+                    self.root.focus_force()
                 except Exception:
                     pass
         child_window.protocol("WM_DELETE_WINDOW", on_close)
+        try:
+            child_window.attributes("-topmost", True)
+        except Exception:
+            pass
         child_window.wait_window()
         self.root.deiconify()
+        try:
+            self.root.attributes("-topmost", True)
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
 
     def open_autosnap(self):
         w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
