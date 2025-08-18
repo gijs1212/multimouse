@@ -15,11 +15,7 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-
-try:
-    import ttkbootstrap as tb
-except ImportError:
-    tb = None
+import customtkinter as ctk
 
 import pyautogui
 from pynput import keyboard, mouse
@@ -240,7 +236,7 @@ def set_window_icon(win: tk.Tk, ico_path: str):
         pass
 
 def toast(parent, title, message, timeout=2000):
-    top = tk.Toplevel(parent)
+    top = ctk.CTkToplevel(parent)
     top.title(title); top.attributes("-topmost", True); top.resizable(False, False)
     frm = ttk.Frame(top, padding=12); frm.pack(fill="both", expand=True)
     ttk.Label(frm, text=message, font=("Segoe UI", 10)).pack()
@@ -252,7 +248,7 @@ def toast(parent, title, message, timeout=2000):
     top.after(timeout, top.destroy)
     return top
 
-def position_bottom_right(win: tk.Toplevel, w=460, h=130, margin=10):
+def position_bottom_right(win: tk.Misc, w=460, h=130, margin=10):
     win.update_idletasks()
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     x = max(0, sw - w - margin)
@@ -457,9 +453,9 @@ def save_snap_config(cfg):
     AUTOSNAP_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 # --- kalibratie dialoog (countdown 3->1) + mini-mode en restore groot ---
-def calibrate_position_snap(root: tk.Tk, target_label: str):
+def calibrate_position_snap(root: ctk.CTk, target_label: str):
     prev_state = _enter_calibration_mini(root, w=460, h=130, margin=10)
-    top = tk.Toplevel(root)
+    top = ctk.CTkToplevel(root)
     result = {"pos": None}
     def _close_interrupt():
         try: top.destroy()
@@ -503,9 +499,9 @@ def calibrate_position_snap(root: tk.Tk, target_label: str):
     finally:
         _exit_calibration_mini(root, prev_state)
 
-class AutoSnapWindow(tk.Toplevel, MiniMixin):
+class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
     def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autosnap")); set_window_icon(self, APP_ICON_SNAP)
@@ -1200,9 +1196,9 @@ def load_combined_data():
     except Exception:
         return None
 
-class AutoTikTokWindow(tk.Toplevel, MiniMixin):
+class AutoTikTokWindow(ctk.CTkToplevel, MiniMixin):
     def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autotiktok")); set_window_icon(self, APP_ICON_TT)
@@ -1488,9 +1484,9 @@ class Player:
                 if self._esc_listener: self._esc_listener.stop()
             except Exception: pass
 
-class AutoMouseWindow(tk.Toplevel, MiniMixin):
+class AutoMouseWindow(ctk.CTkToplevel, MiniMixin):
     def __init__(self, master, get_lang, set_lang):
-        tk.Toplevel.__init__(self, master)
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang
         self.title(tr("automouse")); set_window_icon(self, APP_ICON_MM)
@@ -1680,13 +1676,9 @@ class MultiMouseApp:
         globals()["CURRENT_LANG"] = lang
         dark_mode = bool(data.get("dark_mode", True))
 
-        self.root = None; self.style = None; self.using_tb = tb is not None
-        if self.using_tb:
-            self.root = tb.Window(themename="darkly"); self.style = tb.Style()
-        else:
-            self.root = tk.Tk(); self.style = ttk.Style()
-            try: self.style.theme_use("clam")
-            except Exception: pass
+        self.root = ctk.CTk(); self.style = ttk.Style()
+        try: self.style.theme_use("clam")
+        except Exception: pass
 
         self.root.title(tr("app_title"))
         self.root.geometry("900x560"); self.root.resizable(True, True)
@@ -1701,32 +1693,32 @@ class MultiMouseApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
-        wrap = ttk.Frame(self.root, padding=16); wrap.grid(row=0, column=0, sticky="nsew")
+        wrap = ctk.CTkFrame(self.root)
+        wrap.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
         for c in range(3): wrap.columnconfigure(c, weight=1)
 
-        title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+        title = ctk.CTkLabel(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
         title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
 
-        ttk.Button(wrap, text=" " + tr("open_autosnap"),  command=self.open_autosnap).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_automouse"), command=self.open_automouse).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_autotiktok"), command=self.open_autotiktok).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autosnap"),  command=self.open_autosnap).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_automouse"), command=self.open_automouse).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autotiktok"), command=self.open_autotiktok).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
 
-        bar = ttk.Frame(wrap, padding=(6, 4)); bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+        bar = ctk.CTkFrame(wrap)
+        bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
         for c in range(4): bar.columnconfigure(c, weight=1)
         small_font = ("Segoe UI", 8)
 
-        ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
-        lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
+        ctk.CTkLabel(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+        lang = ctk.CTkOptionMenu(bar, variable=self.lang_var, values=["nl", "en"], command=self._switch_lang)
         lang.grid(row=0, column=1, padx=4, sticky="w")
-        try: lang["menu"].configure(font=small_font)
-        except Exception: pass
 
-        ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
-        chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
+        ctk.CTkLabel(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+        chk = ctk.CTkCheckBox(bar, text="", variable=self.dark_var, command=self._apply_theme)
         chk.grid(row=0, column=3, padx=4, sticky="w")
 
-        ttk.Button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(row=3, column=0, columnspan=3, pady=(0,4), sticky="ew")
-        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(row=4, column=0, columnspan=3, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(row=3, column=0, columnspan=3, pady=(0,4), sticky="ew")
+        ctk.CTkButton(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(row=4, column=0, columnspan=3, pady=8, sticky="ew")
 
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
@@ -1736,25 +1728,21 @@ class MultiMouseApp:
 
     def _apply_theme(self, initial=False):
         is_dark = bool(self.dark_var.get())
-        if self.using_tb:
-            target = "darkly" if is_dark else "flatly"
-            try: self.style.theme_use(target)
-            except Exception: pass
-        else:
-            bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
-            try:
-                self.root.configure(bg=bg)
-            except Exception: pass
-            try:
-                self.style.configure(".", background=bg, foreground=fg)
-                self.style.configure("TLabel", background=bg, foreground=fg)
-                self.style.configure("TFrame", background=bg)
-                self.style.configure("TButton", background=bg, foreground=fg)
-                self.style.configure("TCheckbutton", background=bg, foreground=fg)
-                self.style.configure("TLabelframe", background=bg, foreground=fg)
-                self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
-                self.style.map("TButton", foreground=[("disabled", "#888888")])
-            except Exception: pass
+        ctk.set_appearance_mode("dark" if is_dark else "light")
+        bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
+        try:
+            self.root.configure(bg=bg)
+        except Exception: pass
+        try:
+            self.style.configure(".", background=bg, foreground=fg)
+            self.style.configure("TLabel", background=bg, foreground=fg)
+            self.style.configure("TFrame", background=bg)
+            self.style.configure("TButton", background=bg, foreground=fg)
+            self.style.configure("TCheckbutton", background=bg, foreground=fg)
+            self.style.configure("TLabelframe", background=bg, foreground=fg)
+            self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
+            self.style.map("TButton", foreground=[("disabled", "#888888")])
+        except Exception: pass
         if not initial:
             self.dirty = True
 
@@ -1765,17 +1753,28 @@ class MultiMouseApp:
             "autosnap": load_snap_config(),
             "autotiktok": load_tt_config(),
         }
+        file_path = filedialog.asksaveasfilename(initialdir=str(EXTRA_SAVE_DIR),
+                                                defaultextension=".json",
+                                                filetypes=[("JSON", "*.json")])
+        if not file_path:
+            return
         try:
-            EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-            EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(file_path).write_text(json.dumps(data, indent=2), encoding="utf-8")
             messagebox.showinfo(tr("save_settings"), tr("saved"))
             self.dirty = False
         except Exception:
             messagebox.showerror(tr("save_settings"), "Kon instellingen niet opslaan")
 
     def load_combined_settings(self):
-        data = load_combined_data()
-        if not data:
+        file_path = filedialog.askopenfilename(initialdir=str(EXTRA_SAVE_DIR),
+                                               filetypes=[("JSON", "*.json")])
+        if not file_path:
+            messagebox.showerror(tr("load_settings"), "Geen opgeslagen instellingen")
+            return
+        try:
+            data = json.loads(Path(file_path).read_text(encoding="utf-8"))
+        except Exception:
             messagebox.showerror(tr("load_settings"), "Geen opgeslagen instellingen")
             return
         self.lang_var.set(data.get("language", self.lang_var.get()))
@@ -1793,7 +1792,7 @@ class MultiMouseApp:
                 self.save_combined_settings()
         self.root.destroy()
 
-    def _show_child_modal(self, child_window: tk.Toplevel):
+    def _show_child_modal(self, child_window: ctk.CTkToplevel):
         # hoofdmenu blijft op achtergrond (niet topmost)
         try: self.root.attributes("-topmost", False)
         except Exception: pass
