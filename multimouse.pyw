@@ -17,9 +17,17 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 try:
+    import customtkinter as ctk
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
+except Exception:
+    ctk = None
+
+try:
     import ttkbootstrap as tb
 except ImportError:
     tb = None
+
 
 import pyautogui
 from pynput import keyboard, mouse
@@ -35,6 +43,15 @@ def set_app_user_model_id(id_str="com.gijs.multimouse"):
         except Exception:
             pass
 set_app_user_model_id("com.gijs.multimouse")
+
+# verberg consolevenster bij starten zodat er geen terminal opent
+def hide_console():
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+        except Exception:
+            pass
+hide_console()
 
 pyautogui.FAILSAFE = False
 try:
@@ -76,10 +93,47 @@ AUTOTIKTOK_DIR = BASE_DIR / "AutoTikTok"
 for d in (BASE_DIR, AUTOSNAP_DIR, AUTOMOUSE_DIR, AUTOTIKTOK_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
+# Extra opslaglocatie voor gecombineerde instellingen
+EXTRA_SAVE_DIR = BASE_PATH() / "bestanden" / "multimouse" / "kalibratie"
+EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+EXTRA_SAVE_FILE = EXTRA_SAVE_DIR / "instellingen.txt"
+
+# globale vlaggen voor niet-opgeslagen onderdelen
+DIRTY_FLAGS = set()
+
+def mark_dirty(section: str):
+    """Markeer een onderdeel als aangepast zodat we bij afsluiten kunnen vragen om op te slaan."""
+    DIRTY_FLAGS.add(section)
+
 # .ico bestanden naast dit .pyw
 APP_ICON_MM = res_path("inputmouse_92614.ico")                  # muis icoon (hoofdmenu)
 APP_ICON_SNAP = res_path("snapchat_black_logo_icon_147080.ico") # snapchat icoon
 APP_ICON_TT  = res_path("tiktok_logo_icon_144802.ico")          # tiktok icoon
+
+# algemene button helpers voor rondere knoppen en hover-effect
+def _add_hover_animation(btn):
+    def _on_enter(_):
+        try:
+            btn.configure(style="Hover.Rounded.TButton")
+        except Exception:
+            pass
+    def _on_leave(_):
+        try:
+            btn.configure(style="Rounded.TButton")
+        except Exception:
+            pass
+    btn.bind("<Enter>", _on_enter)
+    btn.bind("<Leave>", _on_leave)
+
+def make_button(master, **kwargs):
+    if ctk and isinstance(master, ctk.CTkBaseClass):
+        return ctk.CTkButton(master, **kwargs)
+    if tb:
+        bs = kwargs.pop("bootstyle", "secondary round")
+        return tb.Button(master, bootstyle=bs, **kwargs)
+    btn = ttk.Button(master, style="Rounded.TButton", **kwargs)
+    _add_hover_animation(btn)
+    return btn
 
 # -----------------------------------------------------------------------------
 # i18n
@@ -114,6 +168,9 @@ LANGS = {
         "move_mouse_to": "Beweeg je muis naar:\n{target}",
         "dark_mode": "Donkere modus",
         "language": "Taal",
+        "save_settings": "Instellingen opslaan",
+        "load_settings": "Instellingen laden",
+        "loaded": "Ingeladen",
         "play_delay": "Delay tussen herhalingen (seconden)",
         "waiting_for_insert": "Wachten op INSERT",
         "press_insert_to_start": "Druk op INSERT om te starten (ESC annuleert)",
@@ -175,12 +232,15 @@ LANGS = {
         "move_mouse_to": "Move your mouse to:\n{target}",
         "dark_mode": "Dark mode",
         "language": "Language",
+        "save_settings": "Save settings",
+        "load_settings": "Load settings",
+        "loaded": "Loaded",
         "play_delay": "Delay between repeats (seconds)",
         "waiting_for_insert": "Waiting for INSERT",
-        "press_insert_to_start": "Press INSERT to start (ESC to cancel)",
-        "press_insert_or_esc_to_stop": "Recording - press INSERT or ESC to stop",
+        "press_insert_to_start": "Press INSERT to start (ESC cancels)",
+        "press_insert_or_esc_to_stop": "Recording – press INSERT or ESC to stop",
         "waiting_until": "Waiting until {time}",
-        "send_to": "Send To (step 1)",
+        "send_to": "Send to (step 1)",
         "send": "Send (final)",
         "schedule_enable": "Run at times (daily)",
         "schedule_time": "Time (HH:MM)",
@@ -442,8 +502,10 @@ def load_snap_config():
         except Exception: pass
     return DEFAULT_SNAP_CONFIG.copy()
 
-def save_snap_config(cfg):
+def save_snap_config(cfg, mark=True):
     AUTOSNAP_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    if mark:
+        mark_dirty("autosnap")
 
 # --- kalibratie dialoog (countdown 3->1) + mini-mode en restore groot ---
 def calibrate_position_snap(root: tk.Tk, target_label: str):
@@ -493,10 +555,10 @@ def calibrate_position_snap(root: tk.Tk, target_label: str):
         _exit_calibration_mini(root, prev_state)
 
 class AutoSnapWindow(tk.Toplevel, MiniMixin):
-    def __init__(self, master, get_lang, set_lang):
+    def __init__(self, master, get_lang, set_lang, save_combined):
         tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
-        self.get_lang = get_lang; self.set_lang = set_lang
+        self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autosnap")); set_window_icon(self, APP_ICON_SNAP)
         self.geometry("900x1040"); self.resizable(True, True); self.attributes("-topmost", True)
 
@@ -562,8 +624,9 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self._build_responder(self.responder_frame)
         self._build_combi(self.combi_frame)
 
+        make_button(wrap, text=tr("save_settings"), command=self.save_combined).grid(row=2, column=0, sticky="e", pady=(0,5))
         self.status_lbl = ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic"))
-        self.status_lbl.grid(row=2, column=0, sticky="w")
+        self.status_lbl.grid(row=3, column=0, sticky="w")
 
         self._refresh_mode()
 
@@ -589,16 +652,16 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         except Exception:
             pass
 
-        ttk.Button(calib, text=" Foto 1",
-                   command=lambda: self._calib_key("foto1", "Foto knop 1")).grid(row=0, column=0, padx=6, sticky="ew")
-        ttk.Button(calib, text=" Foto 2",
-                   command=lambda: self._calib_key("foto2", "Foto knop 2")).grid(row=0, column=1, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send_to"),
-                   command=lambda: self._calib_key("verstuur_na_foto", tr("send_to"))).grid(row=0, column=2, padx=6, sticky="ew")
-        ttk.Button(calib, text=" Personen", command=self._calib_people).grid(row=1, column=0, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send"),
-                   command=lambda: self._calib_key("verzend", tr("send"))).grid(row=1, column=1, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("full_calibration"), command=self._full_calibration_sender).grid(row=1, column=2, padx=6, sticky="ew")
+        make_button(calib, text=" Foto 1",
+                   command=lambda: self._calib_key("foto1", "Foto knop 1")).grid(row=0, column=0, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" Foto 2",
+                   command=lambda: self._calib_key("foto2", "Foto knop 2")).grid(row=0, column=1, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("send_to"),
+                   command=lambda: self._calib_key("verstuur_na_foto", tr("send_to"))).grid(row=0, column=2, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" Personen", command=self._calib_people).grid(row=1, column=0, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("send"),
+                   command=lambda: self._calib_key("verzend", tr("send"))).grid(row=1, column=1, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("full_calibration"), command=self._full_calibration_sender).grid(row=1, column=2, padx=6, pady=4, sticky="ew")
 
         pf = ttk.LabelFrame(root, text=tr("people"), padding=12)
         pf.grid(row=2, column=0, sticky="ew", pady=8)
@@ -621,12 +684,13 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         ttk.Checkbutton(sch, text=tr("schedule_enable"), variable=self.schedule_enabled).grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
-        ttk.Button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, sticky="w")
+        make_button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, pady=4, sticky="w")
 
         self.times_list = tk.Listbox(sch, height=6)
         self.times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
         self.times_list.bind("<<ListboxSelect>>", lambda e: self._load_people_for_selected_time())
-        ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
+        self.times_list.bind("<Double-Button-1>", self._show_time_people)
+        make_button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, pady=4, sticky="nw")
 
         self.time_people_vars = [tk.BooleanVar(value=False) for _ in range(8)]
         per_frame = ttk.LabelFrame(sch, text=tr("people"), padding=10)
@@ -635,7 +699,7 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         for i in range(8):
             ttk.Checkbutton(per_frame, text=f"P{i+1}", variable=self.time_people_vars[i]).grid(row=i//2, column=i%2, sticky="w")
 
-        ttk.Button(root, text=" " + tr("start"), command=self._start_sender).grid(row=5, column=0, pady=12, sticky="ew")
+        make_button(root, text=" " + tr("start"), command=self._start_sender).grid(row=5, column=0, pady=12, sticky="ew")
 
         # init lists
         self._refresh_times()
@@ -648,23 +712,23 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="ew", pady=8); calib.columnconfigure(0, weight=1)
 
-        ttk.Button(calib, text=" " + tr("badge_points"),
+        make_button(calib, text=" " + tr("badge_points"),
                    command=self._calib_responder_badges).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" Foto knop 1",
+        make_button(calib, text=" Foto knop 1",
                    command=lambda: self._calib_key("foto1", "Foto knop 1")).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send"),
+        make_button(calib, text=" " + tr("send"),
                    command=lambda: self._calib_key("verzend", tr("send"))).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("close_snap"),
+        make_button(calib, text=" " + tr("close_snap"),
                    command=lambda: self._calib_key("responder_close_snap", tr("close_snap"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("searchbar"),
+        make_button(calib, text=" " + tr("searchbar"),
                    command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
 
-        ttk.Button(calib, text=" " + tr("full_calibration"),
+        make_button(calib, text=" " + tr("full_calibration"),
                    command=self._full_calibration_responder).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
 
         btns = ttk.Frame(root); btns.grid(row=2, column=0, sticky="ew", pady=10)
-        ttk.Button(btns, text=" " + tr("start_responder"), command=self._start_responder).grid(row=0, column=0, padx=6, sticky="w")
-        ttk.Button(btns, text=" " + tr("stop_responder"), command=self._stop_responder).grid(row=0, column=1, padx=6, sticky="w")
+        make_button(btns, text=" " + tr("start_responder"), command=self._start_responder).grid(row=0, column=0, padx=6, sticky="w")
+        make_button(btns, text=" " + tr("stop_responder"), command=self._stop_responder).grid(row=0, column=1, padx=6, sticky="w")
 
     # ----- Combi UI -----
     def _build_combi(self, root):
@@ -674,19 +738,19 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="ew", pady=8)
 
-        ttk.Button(calib, text=" " + tr("badge_points"),
+        make_button(calib, text=" " + tr("badge_points"),
                    command=self._calib_responder_badges).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" Foto (maken)",
+        make_button(calib, text=" Foto (maken)",
                    command=lambda: self._calib_key("foto1", "Foto knop 1")).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send_to"),
+        make_button(calib, text=" " + tr("send_to"),
                    command=lambda: self._calib_key("verstuur_na_foto", tr("send_to"))).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send"),
+        make_button(calib, text=" " + tr("send"),
                    command=lambda: self._calib_key("verzend", tr("send"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("restart_close"),
+        make_button(calib, text=" " + tr("restart_close"),
                    command=lambda: self._calib_key("restart_close_app", tr("restart_close"))).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("restart_search"),
+        make_button(calib, text=" " + tr("restart_search"),
                    command=lambda: self._calib_key("restart_searchbar", tr("restart_search"))).grid(row=5, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("full_calibration"),
+        make_button(calib, text=" " + tr("full_calibration"),
                    command=self._full_calibration_combi).grid(row=6, column=0, padx=6, pady=(6,0), sticky="ew")
 
         # Planner (tijden & personen)
@@ -698,12 +762,13 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.combi_new_time_var = tk.StringVar(value="")
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.combi_new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
-        ttk.Button(sch, text=tr("add_time"), command=self._combi_add_time).grid(row=0, column=3, padx=6, sticky="w")
+        make_button(sch, text=tr("add_time"), command=self._combi_add_time).grid(row=0, column=3, padx=6, pady=4, sticky="w")
 
         self.combi_times_list = tk.Listbox(sch, height=6)
         self.combi_times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
         self.combi_times_list.bind("<<ListboxSelect>>", lambda e: self._combi_load_people_for_selected_time())
-        ttk.Button(sch, text=tr("remove_time"), command=self._combi_remove_time).grid(row=1, column=2, padx=6, sticky="nw")
+        self.combi_times_list.bind("<Double-Button-1>", self._combi_show_time_people)
+        make_button(sch, text=tr("remove_time"), command=self._combi_remove_time).grid(row=1, column=2, padx=6, pady=4, sticky="nw")
 
         self.combi_people_vars = [tk.BooleanVar(value=False) for _ in range(8)]
         per_frame = ttk.LabelFrame(sch, text=tr("people"), padding=10)
@@ -719,8 +784,8 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
 
         # Start/stop
         btns = ttk.Frame(root); btns.grid(row=4, column=0, sticky="ew", pady=10)
-        ttk.Button(btns, text=" " + tr("start_combi"), command=self._start_combi).grid(row=0, column=0, padx=6, sticky="w")
-        ttk.Button(btns, text=" " + tr("stop_combi"), command=self._stop_combi).grid(row=0, column=1, padx=6, sticky="w")
+        make_button(btns, text=" " + tr("start_combi"), command=self._start_combi).grid(row=0, column=0, padx=6, sticky="w")
+        make_button(btns, text=" " + tr("stop_combi"), command=self._stop_combi).grid(row=0, column=1, padx=6, sticky="w")
 
         self._combi_refresh_times()
 
@@ -743,7 +808,12 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
     def _calib_key(self, key, label_text):
         pos = calibrate_position_snap(self, label_text)
         if pos:
-            self.cfg[key] = pos; save_snap_config(self.cfg)
+            self.cfg[key] = pos
+            if key == "restart_close_app":
+                self.cfg["responder_close_snap"] = pos
+            elif key == "responder_close_snap":
+                self.cfg["restart_close_app"] = pos
+            save_snap_config(self.cfg)
             toast(self, tr("saved"), f"{label_text} -> {pos}", timeout=2000)
 
     def _calib_people(self):
@@ -797,6 +867,19 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         if not sel: return
         self.time_people[sel] = [bool(v.get()) for v in self.time_people_vars]
         self.cfg["combi_time_people"] = self.time_people; save_snap_config(self.cfg)
+
+    def _show_time_people(self, event=None):
+        if event is not None:
+            idx = event.widget.nearest(event.y)
+            event.widget.selection_clear(0, tk.END)
+            event.widget.selection_set(idx)
+        sel = self._selected_time()
+        if not sel:
+            return
+        mask = self.time_people.get(sel, [False]*8)
+        people = [f"P{i+1}" for i, on in enumerate(mask) if on]
+        text = ", ".join(people) if people else "Geen"
+        messagebox.showinfo(sel, text)
 
     def _click_xy(self, pos):
         x, y = pos
@@ -1059,6 +1142,19 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.combi_time_people[sel] = [bool(v.get()) for v in self.combi_people_vars]
         self.cfg["combi_time_people"] = self.combi_time_people; save_snap_config(self.cfg)
 
+    def _combi_show_time_people(self, event=None):
+        if event is not None:
+            idx = event.widget.nearest(event.y)
+            event.widget.selection_clear(0, tk.END)
+            event.widget.selection_set(idx)
+        sel = self._combi_selected_time()
+        if not sel:
+            return
+        mask = self.combi_time_people.get(sel, [False]*8)
+        people = [f"P{i+1}" for i, on in enumerate(mask) if on]
+        text = ", ".join(people) if people else "Geen"
+        messagebox.showinfo(sel, text)
+
     def _start_combi(self):
         required = [
             self.cfg.get("foto1"),
@@ -1145,16 +1241,41 @@ def load_tt_config():
         except Exception: pass
     return DEFAULT_TT_CONFIG.copy()
 
-def save_tt_config(cfg):
+def save_tt_config(cfg, mark=True):
     AUTOTIKTOK_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    if mark:
+        mark_dirty("autotiktok")
+
+
+def load_combined_data(path: Path = EXTRA_SAVE_FILE):
+    """Laad gecombineerde instellingen uit een gekozen bestand en pas toe."""
+    file_path = Path(path)
+    if not file_path.exists():
+        return None
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        snap = data.get("autosnap")
+        if isinstance(snap, dict):
+            save_snap_config(snap, mark=False)
+        tt = data.get("autotiktok")
+        if isinstance(tt, dict):
+            save_tt_config(tt, mark=False)
+        return data
+    except Exception:
+        return None
 
 class AutoTikTokWindow(tk.Toplevel, MiniMixin):
-    def __init__(self, master, get_lang, set_lang):
+    def __init__(self, master, get_lang, set_lang, save_combined):
         tk.Toplevel.__init__(self, master)
         MiniMixin.__init__(self)
-        self.get_lang = get_lang; self.set_lang = set_lang
-        self.title(tr("autotiktok")); set_window_icon(self, APP_ICON_TT)
-        self.geometry("740x780"); self.resizable(True, True); self.attributes("-topmost", True)
+        self.get_lang = get_lang
+        self.set_lang = set_lang
+        self.save_combined = save_combined
+        self.title(tr("autotiktok"))
+        set_window_icon(self, APP_ICON_TT)
+        self.geometry("740x780")
+        self.resizable(True, True)
+        self.attributes("-topmost", True)
 
         self.cfg = load_tt_config()
         self.status_var = tk.StringVar(value="")
@@ -1175,15 +1296,15 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
         calib = ttk.LabelFrame(wrap, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="ew", pady=8); calib.columnconfigure(0, weight=1)
 
-        ttk.Button(calib, text=" Upload", command=lambda: self._calib_key("upload", "Upload")).grid(row=0, column=0, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("select_video"), command=lambda: self._calib_key("select_video", tr("select_video"))).grid(row=0, column=1, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("video_item"), command=lambda: self._calib_key("video_item", tr("video_item"))).grid(row=0, column=2, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("open"), command=lambda: self._calib_key("open", tr("open"))).grid(row=0, column=3, padx=6, sticky="ew")
+        make_button(calib, text=" Upload", command=lambda: self._calib_key("upload", "Upload")).grid(row=0, column=0, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("select_video"), command=lambda: self._calib_key("select_video", tr("select_video"))).grid(row=0, column=1, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("video_item"), command=lambda: self._calib_key("video_item", tr("video_item"))).grid(row=0, column=2, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("open"), command=lambda: self._calib_key("open", tr("open"))).grid(row=0, column=3, padx=6, pady=4, sticky="ew")
 
-        ttk.Button(calib, text=" " + tr("description"), command=lambda: self._calib_key("description", tr("description"))).grid(row=1, column=0, padx=6, sticky="ew")
-        ttk.Button(calib, text=" " + tr("send"), command=lambda: self._calib_key("send", tr("send"))).grid(row=1, column=1, padx=6, sticky="ew")
+        make_button(calib, text=" " + tr("description"), command=lambda: self._calib_key("description", tr("description"))).grid(row=1, column=0, padx=6, pady=4, sticky="ew")
+        make_button(calib, text=" " + tr("send"), command=lambda: self._calib_key("send", tr("send"))).grid(row=1, column=1, padx=6, pady=4, sticky="ew")
 
-        ttk.Button(calib, text=" " + tr("full_calibration"), command=self._full_calibration).grid(row=2, column=0, padx=6, pady=(6,0), sticky="ew")
+        make_button(calib, text=" " + tr("full_calibration"), command=self._full_calibration).grid(row=2, column=0, padx=6, pady=(6,0), sticky="ew")
 
         desc_frame = ttk.LabelFrame(wrap, text="Beschrijving", padding=12)
         desc_frame.grid(row=2, column=0, sticky="ew", pady=8)
@@ -1195,14 +1316,15 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
         ttk.Checkbutton(sch, text=tr("schedule_enable"), variable=self.schedule_enabled).grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
-        ttk.Button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, sticky="w")
+        make_button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, pady=4, sticky="w")
 
         self.times_list = tk.Listbox(sch, height=6)
         self.times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
-        ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
+        make_button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, pady=4, sticky="nw")
 
-        ttk.Button(wrap, text=" " + tr("start"), command=self._start).grid(row=4, column=0, pady=12, sticky="ew")
-        ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic")).grid(row=5, column=0, sticky="w")
+        make_button(wrap, text=" " + tr("start"), command=self._start).grid(row=4, column=0, pady=12, sticky="ew")
+        make_button(wrap, text=tr("save_settings"), command=self.save_combined).grid(row=5, column=0, pady=(0,8), sticky="e")
+        ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic")).grid(row=6, column=0, sticky="w")
 
     def _full_calibration(self):
         sequence = [("upload", "Upload"), ("select_video", tr("select_video")),
@@ -1486,13 +1608,13 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 
         row = ttk.Frame(wrap); row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=6)
         for c in range(5): row.columnconfigure(c, weight=1)
-        ttk.Button(row, text=" " + tr("record_new"), command=self._record).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(row, text=" " + tr("open_record"), command=self._open).grid(row=0, column=1, padx=6, pady=6, sticky="ew")
-        self.play_btn = ttk.Button(row, text=" " + tr("playback"), command=self._play, state="disabled")
+        make_button(row, text=" " + tr("record_new"), command=self._record).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        make_button(row, text=" " + tr("open_record"), command=self._open).grid(row=0, column=1, padx=6, pady=6, sticky="ew")
+        self.play_btn = make_button(row, text=" " + tr("playback"), command=self._play, state="disabled")
         self.play_btn.grid(row=0, column=2, padx=6, pady=6, sticky="ew")
-        self.stop_btn = ttk.Button(row, text=" Stop", command=self._stop_play, state="disabled")
+        self.stop_btn = make_button(row, text=" Stop", command=self._stop_play, state="disabled")
         self.stop_btn.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
-        self.save_btn = ttk.Button(row, text=" " + tr("status_saved"), command=self._save, state="disabled")
+        self.save_btn = make_button(row, text=" " + tr("status_saved"), command=self._save, state="disabled")
         self.save_btn.grid(row=0, column=4, padx=6, pady=6, sticky="ew")
 
         sf = ttk.LabelFrame(wrap, text=tr("settings"), padding=12)
@@ -1512,9 +1634,9 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
         ttk.Checkbutton(sch, text=tr("schedule_enable"), variable=self.schedule_enabled).grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
-        ttk.Button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, sticky="w")
+        make_button(sch, text=tr("add_time"), command=self._add_time).grid(row=0, column=3, padx=6, pady=4, sticky="w")
         self.times_list = tk.Listbox(sch, height=6); self.times_list.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=(8,6), pady=6)
-        ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
+        make_button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, pady=4, sticky="nw")
 
         ttk.Label(wrap, text=tr("status_done"), textvariable=self.status_var, font=("Segoe UI", 10, "italic")).grid(row=4, column=0, columnspan=2, sticky="w")
 
@@ -1622,58 +1744,176 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 # -----------------------------------------------------------------------------
 class MultiMouseApp:
     def __init__(self):
-        self.root = None; self.style = None; self.using_tb = tb is not None
-        if self.using_tb:
-            self.root = tb.Window(themename="darkly"); self.style = tb.Style()
+        data = load_combined_data() or {}
+        lang = data.get("language", CURRENT_LANG)
+        globals()["CURRENT_LANG"] = lang
+        dark_mode = bool(data.get("dark_mode", True))
+
+        self.root = None
+        self.style = None
+        self.using_tb = False
+        if ctk:
+            self.root = ctk.CTk()
+        elif tb is not None:
+            self.using_tb = True
+            self.root = tb.Window(themename="darkly")
+            self.style = tb.Style()
         else:
-            self.root = tk.Tk(); self.style = ttk.Style()
-            try: self.style.theme_use("clam")
-            except Exception: pass
+            self.root = tk.Tk()
+            self.style = ttk.Style()
+            try:
+                self.style.theme_use("clam")
+            except Exception:
+                pass
+            # basisstijl voor ronde knoppen en hoverkleur
+            base_btn = dict(padding=8, relief="flat", borderwidth=1)
+            self.style.configure(
+                "TButton", **base_btn, background="#3a7ff6", foreground="#ffffff"
+            )
+            self.style.map("TButton", background=[("active", "#5a97f7")])
+            self.style.configure(
+                "Rounded.TButton",
+                **base_btn,
+                background="#3a7ff6",
+                foreground="#ffffff",
+            )
+            self.style.configure(
+                "Hover.Rounded.TButton",
+                **base_btn,
+                background="#5a97f7",
+                foreground="#ffffff",
+            )
 
         self.root.title(tr("app_title"))
-        self.root.geometry("900x560"); self.root.resizable(True, True)
-        # Belangrijk: hoofdmenu NIET topmost, zodat het op achtergrond blijft
-        self.root.attributes("-topmost", False)
+        self.root.geometry("900x560")
+        self.root.resizable(True, True)
+        self.root.attributes("-topmost", True)
+        self.root.lift()
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
         set_window_icon(self.root, APP_ICON_MM)
 
-        self.lang_var = tk.StringVar(value=CURRENT_LANG)
-        self.dark_var = tk.BooleanVar(value=True)
+        self.lang_var = tk.StringVar(value=lang)
+        self.dark_var = tk.BooleanVar(value=dark_mode)
 
-        self._build_ui(); self._apply_theme(initial=True)
+        self._build_ui()
+        self._apply_theme(initial=True)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
 
     def _build_ui(self):
-        wrap = ttk.Frame(self.root, padding=16); wrap.grid(row=0, column=0, sticky="nsew")
-        for c in range(3): wrap.columnconfigure(c, weight=1)
+        if ctk:
+            wrap = ctk.CTkFrame(self.root, corner_radius=0)
+            wrap.grid(row=0, column=0, sticky="nsew")
+            for c in range(3):
+                wrap.columnconfigure(c, weight=1)
 
-        title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
-        title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
+            title = ctk.CTkLabel(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+            title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
 
-        ttk.Button(wrap, text=" " + tr("open_autosnap"),  command=self.open_autosnap).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_automouse"), command=self.open_automouse).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_autotiktok"), command=self.open_autotiktok).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autosnap"),
+                command=self.open_autosnap,
+            ).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_automouse"),
+                command=self.open_automouse,
+            ).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autotiktok"),
+                command=self.open_autotiktok,
+            ).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
 
-        bar = ttk.Frame(wrap, padding=(6, 4)); bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
-        for c in range(4): bar.columnconfigure(c, weight=1)
-        small_font = ("Segoe UI", 8)
+            bar = ctk.CTkFrame(wrap)
+            bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+            for c in range(4):
+                bar.columnconfigure(c, weight=1)
+            small_font = ("Segoe UI", 10)
 
-        ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
-        lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
-        lang.grid(row=0, column=1, padx=4, sticky="w")
-        try: lang["menu"].configure(font=small_font)
-        except Exception: pass
+            ctk.CTkLabel(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+            lang = ctk.CTkOptionMenu(bar, variable=self.lang_var, values=["nl", "en"], command=self._switch_lang)
+            lang.grid(row=0, column=1, padx=4, sticky="w")
 
-        ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
-        chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
-        chk.grid(row=0, column=3, padx=4, sticky="w")
+            ctk.CTkLabel(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+            chk = ctk.CTkCheckBox(bar, variable=self.dark_var, command=self._apply_theme, text="")
+            chk.grid(row=0, column=3, padx=4, sticky="w")
 
+            make_button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(
+                row=3, column=0, columnspan=3, pady=(0, 4), sticky="ew"
+            )
+            make_button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(
+                row=4, column=0, columnspan=3, pady=8, sticky="ew"
+            )
+        else:
+            wrap = ttk.Frame(self.root, padding=16)
+            wrap.grid(row=0, column=0, sticky="nsew")
+            for c in range(3):
+                wrap.columnconfigure(c, weight=1)
+
+            title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+            title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
+
+            make_button(
+                wrap,
+                text=" " + tr("open_autosnap"),
+                command=self.open_autosnap,
+            ).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_automouse"),
+                command=self.open_automouse,
+            ).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+            make_button(
+                wrap,
+                text=" " + tr("open_autotiktok"),
+                command=self.open_autotiktok,
+            ).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+
+            bar = ttk.Frame(wrap, padding=(6, 4))
+            bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+            for c in range(4):
+                bar.columnconfigure(c, weight=1)
+            small_font = ("Segoe UI", 8)
+
+            ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+            lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
+            lang.grid(row=0, column=1, padx=4, sticky="w")
+            try:
+                lang["menu"].configure(font=small_font)
+            except Exception:
+                pass
+
+            ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+            chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
+            chk.grid(row=0, column=3, padx=4, sticky="w")
+
+            make_button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(
+                row=3, column=0, columnspan=3, pady=(0, 4), sticky="ew"
+            )
+            make_button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(
+                row=4, column=0, columnspan=3, pady=8, sticky="ew"
+            )
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
-        for w in list(self.root.children.values()): w.destroy()
-        self._build_ui(); self._apply_theme()
+        mark_dirty("language")
+        for w in list(self.root.children.values()):
+            w.destroy()
+        self._build_ui()
+        self._apply_theme()
 
     def _apply_theme(self, initial=False):
         is_dark = bool(self.dark_var.get())
-        if self.using_tb:
+        if ctk:
+            ctk.set_appearance_mode("dark" if is_dark else "light")
+        elif self.using_tb:
             target = "darkly" if is_dark else "flatly"
             try: self.style.theme_use(target)
             except Exception: pass
@@ -1686,33 +1926,88 @@ class MultiMouseApp:
                 self.style.configure(".", background=bg, foreground=fg)
                 self.style.configure("TLabel", background=bg, foreground=fg)
                 self.style.configure("TFrame", background=bg)
-                self.style.configure("TButton", background=bg, foreground=fg)
                 self.style.configure("TCheckbutton", background=bg, foreground=fg)
                 self.style.configure("TLabelframe", background=bg, foreground=fg)
                 self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
                 self.style.map("TButton", foreground=[("disabled", "#888888")])
             except Exception: pass
+        if not initial:
+            mark_dirty("theme")
+
+    def save_combined_settings(self):
+        data = {
+            "language": self.lang_var.get(),
+            "dark_mode": bool(self.dark_var.get()),
+            "autosnap": load_snap_config(),
+            "autotiktok": load_tt_config(),
+        }
+        try:
+            EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            messagebox.showinfo(tr("save_settings"), tr("saved"))
+            DIRTY_FLAGS.clear()
+        except Exception:
+            messagebox.showerror(tr("save_settings"), "Kon instellingen niet opslaan")
+
+    def load_combined_settings(self):
+        path = filedialog.askopenfilename(
+            initialdir=EXTRA_SAVE_DIR,
+            filetypes=(("Instellingen", "*.txt"), ("JSON", "*.json"), ("Alle bestanden", "*.*")),
+        )
+        if not path:
+            return
+        data = load_combined_data(Path(path))
+        if not data:
+            messagebox.showerror(tr("load_settings"), "Geen opgeslagen instellingen")
+            return
+        self.lang_var.set(data.get("language", self.lang_var.get()))
+        self.dark_var.set(bool(data.get("dark_mode", False)))
+        self._switch_lang(self.lang_var.get())
+        self._apply_theme()
+        messagebox.showinfo(tr("load_settings"), tr("loaded"))
+        DIRTY_FLAGS.clear()
+
+    def _on_close(self):
+        if DIRTY_FLAGS:
+            missing = ", ".join(sorted(DIRTY_FLAGS))
+            msg = "Wilt u uw data opslaan?\nNiet opgeslagen: " + missing
+            detail = "Wordt opgeslagen: kalibratie, aantal snaps, tijden met personen, TikTok beschrijving, taal en thema"
+            if messagebox.askyesno(tr("save_settings"), msg, detail=detail):
+                self.save_combined_settings()
+        self.root.destroy()
 
     def _show_child_modal(self, child_window: tk.Toplevel):
-        # hoofdmenu blijft op achtergrond (niet topmost)
-        try: self.root.attributes("-topmost", False)
-        except Exception: pass
-
         self.root.withdraw()
         def on_close():
-            try: child_window.destroy()
+            try:
+                child_window.destroy()
             finally:
                 self.root.deiconify()
-                try: self.root.lift()
-                except Exception: pass
+                try:
+                    self.root.attributes("-topmost", True)
+                    self.root.lift()
+                    self.root.focus_force()
+                except Exception:
+                    pass
         child_window.protocol("WM_DELETE_WINDOW", on_close)
+        try:
+            child_window.attributes("-topmost", True)
+        except Exception:
+            pass
         child_window.wait_window()
         self.root.deiconify()
+        try:
+            self.root.attributes("-topmost", True)
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
 
     def open_autosnap(self):
-        w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
+        w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_SNAP)
         self._show_child_modal(w)
+        mark_dirty("autosnap")
 
     def open_automouse(self):
         w = AutoMouseWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
@@ -1720,16 +2015,14 @@ class MultiMouseApp:
         self._show_child_modal(w)
 
     def open_autotiktok(self):
-        w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
+        w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_TT)
         self._show_child_modal(w)
+        mark_dirty("autotiktok")
 
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        app = MultiMouseApp()
-        app.root.mainloop()
-    except KeyboardInterrupt:
-        pass
+    app = MultiMouseApp()
+    app.root.mainloop()
