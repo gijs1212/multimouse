@@ -1,4 +1,4 @@
-import sys, time
+import sys, time, importlib
 import tkinter as tk
 from tkinter import messagebox
 
@@ -14,15 +14,17 @@ def _fatal(msg: str):
     sys.exit(1)
 
 
-try:
-    import customtkinter as ctk  # type: ignore
-except Exception:
-    _fatal("CustomTkinter ontbreekt. Installeer met: pip install customtkinter")
+def _require_module(name: str, pip_hint: str):
+    try:
+        mod = importlib.import_module(name)
+        path = getattr(mod, "__file__", "builtin")
+        print(f"{name} -> {path}")
+        return mod
+    except Exception as e:
+        _fatal(f"{pip_hint} ontbreekt: {e}\nInstalleer met: pip install {pip_hint}")
 
-try:
-    import pyautogui  # type: ignore
-except Exception:
-    _fatal("PyAutoGUI en Pillow moeten geïnstalleerd zijn.\nGebruik: pip install pyautogui pillow")
+ctk = _require_module("customtkinter", "customtkinter")  # type: ignore
+pyautogui = _require_module("pyautogui", "pyautogui pillow")  # type: ignore
 
 from multimouse import (
     load_combined_data,

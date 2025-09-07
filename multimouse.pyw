@@ -8,7 +8,7 @@ Modules:
 - AutoTikTok (upload flow)
 """
 
-import os, sys, json, time, ctypes, threading, shutil
+import os, sys, json, time, ctypes, threading, shutil, importlib
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -28,26 +28,28 @@ def _fatal(msg: str):
     sys.exit(1)
 
 
-try:
-    import customtkinter as ctk  # type: ignore
-except Exception:
-    _fatal("CustomTkinter ontbreekt. Installeer met: pip install customtkinter")
+def _require_module(name: str, pip_hint: str):
+    """Import a module and show its location; exit if missing."""
+    try:
+        mod = importlib.import_module(name)
+        path = getattr(mod, "__file__", "builtin")
+        print(f"{name} -> {path}")
+        return mod
+    except Exception as e:
+        _fatal(f"{pip_hint} ontbreekt: {e}\nInstalleer met: pip install {pip_hint}")
 
-try:
-    import pyautogui  # type: ignore
-except Exception:
-    _fatal("PyAutoGUI en Pillow moeten geïnstalleerd zijn.\nGebruik: pip install pyautogui pillow")
-
+ctk = _require_module("customtkinter", "customtkinter")  # type: ignore
+pyautogui = _require_module("pyautogui", "pyautogui pillow")  # type: ignore
 try:
     from PIL import Image, ImageTk  # type: ignore
-except Exception:
+    print(f"Pillow -> {Image.__file__}")
+except Exception as e:
     Image = ImageTk = None  # icon fallback wanneer Pillow ontbreekt
+    print(f"Pillow ontbreekt: {e}")
 
-try:
-    from pynput import keyboard, mouse  # type: ignore
-    from pynput.keyboard import Key  # type: ignore
-except Exception:
-    _fatal("pynput ontbreekt. Installeer met: pip install pynput")
+pynput = _require_module("pynput", "pynput")  # type: ignore
+from pynput import keyboard, mouse  # type: ignore
+from pynput.keyboard import Key  # type: ignore
 
 # -----------------------------------------------------------------------------
 # Windows AUMID (taskbar grouping)
