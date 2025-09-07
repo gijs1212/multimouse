@@ -59,16 +59,18 @@ def open_snapchat(cfg, delay):
     if not search:
         return
     x, y = search
-    with log_action("Wachten na opstart (5s)"):
-        time.sleep(5.0)
+    with log_action("Wachten na opstart (10s)"):
+        time.sleep(10.0)
     with log_action("Beweeg naar zoekbalk"):
         pyautogui.moveTo(x, y, duration=delay)
-    time.sleep(delay)
+    time.sleep(1.0)
     with log_action("Klik op zoekbalk"):
         pyautogui.click()
+    time.sleep(2.0)
     try:
         with log_action("Typ 'snapchat' en druk Enter"):
             pyautogui.typewrite("snapchat", interval=0.01)
+            time.sleep(1.0)
             pyautogui.press("enter")
     except Exception:
         pass
