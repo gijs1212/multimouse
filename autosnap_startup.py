@@ -45,34 +45,19 @@ from multimouse import (
 
 pyautogui.FAILSAFE = False
 
-
-def bring_up_autosnap(cfg):
+def open_snapchat(cfg, delay):
     search = cfg.get("boot_searchbar")
     if not search:
         return
     x, y = search
     time.sleep(10.0)
     pyautogui.moveTo(x, y)
-    pyautogui.click()
-    time.sleep(1.0)
-    try:
-        pyautogui.typewrite("autosnap", interval=0.01)
-        time.sleep(1.0)
-        pyautogui.press("enter")
-    except Exception:
-        pass
-
-
-def open_snapchat(cfg, delay):
-    search = cfg.get("boot_searchbar")
-    if not search:
-        return
-    x, y = search
-    pyautogui.moveTo(x, y)
+    time.sleep(delay)
     pyautogui.click()
     time.sleep(delay)
     try:
         pyautogui.typewrite("snapchat", interval=0.01)
+        time.sleep(delay)
         pyautogui.press("enter")
     except Exception:
         pass
@@ -103,7 +88,6 @@ def main():
     cfg = load_snap_config()
     delay = cfg.get("action_delay", 0.5)
     pyautogui.PAUSE = delay
-    bring_up_autosnap(cfg)
     open_snapchat(cfg, delay)
     time.sleep(delay)
     root = ctk.CTk()
