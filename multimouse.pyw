@@ -8,22 +8,63 @@ Modules:
 - AutoTikTok (upload flow)
 """
 
-import os, sys, json, time, ctypes, threading
+import os, sys, json, time, ctypes, threading, shutil, importlib
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-try:
-    import ttkbootstrap as tb
-except ImportError:
-    tb = None
+# search additional roaming site-packages on Windows (incl. Windows PE)
+if sys.platform == "win32":
+    candidates = []
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        candidates.append(Path(appdata) / "Python" / "Python313" / "site-packages")
+    for drive in ("C:", "X:"):
+        for user in ("user", "Default"):
+            candidates.append(Path(drive) / "Users" / user / "AppData" / "Roaming" / "Python" / "Python313" / "site-packages")
+    for c in candidates:
+        if c.exists() and str(c) not in sys.path:
+            sys.path.insert(0, str(c))
 
-import pyautogui
-from pynput import keyboard, mouse
-from pynput.keyboard import Key
+
+def _fatal(msg: str):
+    """Show a blocking error message and exit."""
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("MultiMouse", msg)
+        root.destroy()
+    except Exception:
+        pass
+    sys.exit(1)
+
+
+def _require_module(name: str, pip_hint: str):
+    """Import a module and show its location; exit if missing."""
+    try:
+        mod = importlib.import_module(name)
+        path = getattr(mod, "__file__", "builtin")
+        print(f"{name} -> {path}")
+        return mod
+    except ModuleNotFoundError as e:
+        _fatal(f"{pip_hint} ontbreekt: {e}\nInstalleer met: pip install {pip_hint}")
+    except Exception as e:
+        _fatal(f"Fout bij importeren van {name}: {e}")
+
+ctk = _require_module("customtkinter", "customtkinter")  # type: ignore
+pyautogui = _require_module("pyautogui", "pyautogui pillow")  # type: ignore
+try:
+    from PIL import Image, ImageTk  # type: ignore
+    print(f"Pillow -> {Image.__file__}")
+except Exception as e:
+    Image = ImageTk = None  # icon fallback wanneer Pillow ontbreekt
+    print(f"Pillow ontbreekt: {e}")
+
+pynput = _require_module("pynput", "pynput")  # type: ignore
+from pynput import keyboard, mouse  # type: ignore
+from pynput.keyboard import Key  # type: ignore
 
 # -----------------------------------------------------------------------------
 # Windows AUMID (taskbar grouping)
@@ -86,6 +127,28 @@ APP_ICON_MM = res_path("inputmouse_92614.ico")                  # muis icoon (ho
 APP_ICON_SNAP = res_path("snapchat_black_logo_icon_147080.ico") # snapchat icoon
 APP_ICON_TT  = res_path("tiktok_logo_icon_144802.ico")          # tiktok icoon
 
+# Windows startup helper
+def windows_startup_dir():
+    if sys.platform != "win32":
+        return None
+    p = Path(os.getenv("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    return p if p.exists() else None
+
+def update_autosnap_startup(enable: bool):
+    start_dir = windows_startup_dir()
+    if not start_dir:
+        return
+    src = BASE_PATH() / "autosnap_startup.py"
+    dst = start_dir / "autosnap_startup.py"
+    try:
+        if enable:
+            shutil.copy(src, dst)
+        else:
+            if dst.exists():
+                dst.unlink()
+    except Exception:
+        pass
+
 # -----------------------------------------------------------------------------
 # i18n
 # -----------------------------------------------------------------------------
@@ -146,6 +209,7 @@ LANGS = {
         "stop_responder": "Stop Responder",
         "start_combi": "Start Combi",
         "stop_combi": "Stop Combi",
+        "send_reply": "Versturen reply",
         "close_snap": "Snap sluiten (X in viewer)",
         "searchbar": "Zoekbalk",
         "restart_close": "App sluiten (X rechtsboven)",
@@ -153,6 +217,8 @@ LANGS = {
         "mini_msg": "Bezig — druk op ESC om te stoppen of wacht tot afgelopen",
         "combi_send_count": "Aantal verzenden (dagelijkse snaps)",
         "hourly_restart": "Elk uur app herstarten",
+        "windows_startup": "Start bij Windows",
+        "autoload_settings": "Instellingen automatisch laden bij start",
     },
     "en": {  # (not used now, but kept for completeness)
         "app_title": "MultiMouse",
@@ -210,6 +276,7 @@ LANGS = {
         "stop_responder": "Stop Responder",
         "start_combi": "Start Combi",
         "stop_combi": "Stop Combi",
+        "send_reply": "Send reply",
         "close_snap": "Close Snap (X)",
         "searchbar": "Search bar",
         "restart_close": "Close app (X)",
@@ -217,6 +284,8 @@ LANGS = {
         "mini_msg": "Busy — press ESC to stop or wait until finished",
         "combi_send_count": "Send count (daily snaps)",
         "hourly_restart": "Restart app every hour",
+        "windows_startup": "Start with Windows",
+        "autoload_settings": "Auto-load settings at startup",
     }
 }
 CURRENT_LANG = "nl"
@@ -240,7 +309,7 @@ def set_window_icon(win: tk.Tk, ico_path: str):
         pass
 
 def toast(parent, title, message, timeout=2000):
-    top = tk.Toplevel(parent)
+    top = ctk.CTkToplevel(parent)
     top.title(title); top.attributes("-topmost", True); top.resizable(False, False)
     frm = ttk.Frame(top, padding=12); frm.pack(fill="both", expand=True)
     ttk.Label(frm, text=message, font=("Segoe UI", 10)).pack()
@@ -252,7 +321,7 @@ def toast(parent, title, message, timeout=2000):
     top.after(timeout, top.destroy)
     return top
 
-def position_bottom_right(win: tk.Toplevel, w=460, h=130, margin=10):
+def position_bottom_right(win: tk.Misc, w=460, h=130, margin=10):
     win.update_idletasks()
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     x = max(0, sw - w - margin)
@@ -445,6 +514,11 @@ DEFAULT_SNAP_CONFIG = {
     "restart_searchbar": None,            # Zoekbalk
     "combi_times": [],                    # ["08:00","21:30",...]
     "combi_time_people": {},              # map tijd -> [bool x 8]
+    "startup_enabled": False,
+    "startup_send_snap": False,
+    "boot_searchbar": None,
+    "action_delay": 0.5,
+    "auto_load_settings": False,
 }
 
 def load_snap_config():
@@ -457,9 +531,9 @@ def save_snap_config(cfg):
     AUTOSNAP_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 # --- kalibratie dialoog (countdown 3->1) + mini-mode en restore groot ---
-def calibrate_position_snap(root: tk.Tk, target_label: str):
+def calibrate_position_snap(root: ctk.CTk, target_label: str):
     prev_state = _enter_calibration_mini(root, w=460, h=130, margin=10)
-    top = tk.Toplevel(root)
+    top = ctk.CTkToplevel(root)
     result = {"pos": None}
     def _close_interrupt():
         try: top.destroy()
@@ -503,17 +577,25 @@ def calibrate_position_snap(root: tk.Tk, target_label: str):
     finally:
         _exit_calibration_mini(root, prev_state)
 
-class AutoSnapWindow(tk.Toplevel, MiniMixin):
-    def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
+    def __init__(self, master, get_lang, set_lang, save_combined, load_combined):
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
-        self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
+        self.get_lang = get_lang; self.set_lang = set_lang
+        self.save_combined = save_combined; self.load_combined = load_combined
         self.title(tr("autosnap")); set_window_icon(self, APP_ICON_SNAP)
         self.geometry("900x1040"); self.resizable(True, True); self.attributes("-topmost", True)
 
         self.cfg = load_snap_config()
         self.status_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value="sender")
+        self.startup_enabled = tk.BooleanVar(value=bool(self.cfg.get("startup_enabled")))
+        self.startup_send_snap = tk.BooleanVar(value=bool(self.cfg.get("startup_send_snap")))
+        self.action_delay_var = tk.DoubleVar(value=self.cfg.get("action_delay", 0.5))
+        self.autoload_var = tk.BooleanVar(value=bool(self.cfg.get("auto_load_settings")))
+        pyautogui.PAUSE = 0
+        self.action_delay_var.trace_add("write", lambda *_: self._apply_action_delay())
+        self.settings_win = None
 
         # Sender state
         self.person_vars = [tk.BooleanVar(value=True) for _ in range(8)]
@@ -540,30 +622,38 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.ui_lock = threading.Lock()
 
         self._build_ui()
+        update_autosnap_startup(self.startup_enabled.get())
 
     # ---------- helpers ----------
-    def move_then_click(self, pos, pre=0.5, post=0.5):
-        """Beweeg -> 0.5s -> klik -> 0.5s (standaard)"""
-        if not pos: return
+    def move_then_click(self, pos):
+        """Beweeg naar positie, klik en wacht"""
+        if not pos:
+            return
+        delay = self.action_delay_var.get()
         x, y = pos
         pyautogui.moveTo(x, y)
-        if pre>0: time.sleep(pre)
         pyautogui.click()
-        if post>0: time.sleep(post)
+        if delay > 0:
+            time.sleep(delay)
 
     # ---------- UI ----------
     def _build_ui(self):
         wrap = ttk.Frame(self, padding=20); wrap.pack(fill="both", expand=True)
         wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(1, weight=1)
 
-        mode_frame = ttk.LabelFrame(wrap, text=tr("mode"), padding=12)
-        mode_frame.grid(row=0, column=0, sticky="ew", pady=(0,10))
+        top = ttk.Frame(wrap)
+        top.grid(row=0, column=0, sticky="ew", pady=(0,10))
+        top.columnconfigure(0, weight=1)
+        mode_frame = ttk.LabelFrame(top, text=tr("mode"), padding=12)
+        mode_frame.grid(row=0, column=0, sticky="w")
         ttk.Radiobutton(mode_frame, text=tr("sender"), variable=self.mode_var, value="sender",
                         command=self._refresh_mode).grid(row=0, column=0, padx=8, sticky="w")
         ttk.Radiobutton(mode_frame, text=tr("responder"), variable=self.mode_var, value="responder",
                         command=self._refresh_mode).grid(row=0, column=1, padx=8, sticky="w")
         ttk.Radiobutton(mode_frame, text=tr("combi"), variable=self.mode_var, value="combi",
                         command=self._refresh_mode).grid(row=0, column=2, padx=8, sticky="w")
+        ttk.Button(top, text="⚙", width=3, command=self._open_settings).grid(row=0, column=1, sticky="e", padx=(6,0))
 
         self.sender_frame = ttk.Frame(wrap, padding=4); self.sender_frame.grid(row=1, column=0, sticky="nsew")
         self.responder_frame = ttk.Frame(wrap, padding=4); self.responder_frame.grid(row=1, column=0, sticky="nsew")
@@ -573,7 +663,10 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self._build_responder(self.responder_frame)
         self._build_combi(self.combi_frame)
 
-        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined).grid(row=2, column=0, sticky="e", pady=(0,5))
+        btn_row = ttk.Frame(wrap)
+        btn_row.grid(row=2, column=0, sticky="e", pady=(0,5))
+        ttk.Button(btn_row, text=tr("load_settings"), command=self.load_combined).pack(side="left", padx=(0,6))
+        ttk.Button(btn_row, text=tr("save_settings"), command=self.save_combined).pack(side="left")
         self.status_lbl = ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic"))
         self.status_lbl.grid(row=3, column=0, sticky="w")
 
@@ -584,6 +677,73 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         if m == "sender": self.sender_frame.lift()
         elif m == "responder": self.responder_frame.lift()
         else: self.combi_frame.lift()
+
+    def _toggle_startup(self):
+        enabled = bool(self.startup_enabled.get())
+        self.cfg["startup_enabled"] = enabled
+        save_snap_config(self.cfg)
+        update_autosnap_startup(enabled)
+        if enabled:
+            messagebox.showinfo("Startup", "Script toegevoegd aan Windows Startup. Uitschakelen: vink deze optie uit.")
+        else:
+            messagebox.showinfo("Startup", "Startup-script verwijderd uit Windows Startup.")
+
+    def _toggle_startup_send_snap(self):
+        self.cfg["startup_send_snap"] = bool(self.startup_send_snap.get())
+        save_snap_config(self.cfg)
+
+    def _toggle_autoload(self):
+        self.cfg["auto_load_settings"] = bool(self.autoload_var.get())
+        save_snap_config(self.cfg)
+
+    def _apply_action_delay(self):
+        try:
+            val = float(self.action_delay_var.get())
+        except Exception:
+            val = 0.5
+            self.action_delay_var.set(val)
+        self.cfg["action_delay"] = val
+        save_snap_config(self.cfg)
+
+    def _open_settings(self):
+        if self.settings_win and self.settings_win.winfo_exists():
+            self.settings_win.lift(); return
+        win = ctk.CTkToplevel(self)
+        win.title(tr("settings"))
+        set_window_icon(win, APP_ICON_SNAP)
+        win.geometry("360x240")
+        win.attributes("-topmost", True)
+        self.settings_win = win
+        win.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, "settings_win", None), win.destroy()))
+
+        tabs = ctk.CTkTabview(win)
+        tabs.pack(fill="both", expand=True, padx=10, pady=10)
+
+        tab_gen = tabs.add("Algemeen")
+        ctk.CTkLabel(tab_gen, text="Actie-delay (s)").pack(anchor="w", padx=10, pady=(10,0))
+        ctk.CTkEntry(tab_gen, textvariable=self.action_delay_var, width=80).pack(anchor="w", padx=10, pady=(0,10))
+        ctk.CTkCheckBox(tab_gen, text=tr("autoload_settings"),
+                        variable=self.autoload_var,
+                        command=self._toggle_autoload).pack(anchor="w", padx=10, pady=8)
+        ctk.CTkButton(tab_gen, text=tr("full_calibration"), command=self._calibrate_from_settings).pack(fill="x", padx=10, pady=8)
+
+        tab_start = tabs.add("Startup")
+        ctk.CTkCheckBox(tab_start, text=tr("windows_startup"), variable=self.startup_enabled,
+                        command=self._toggle_startup).pack(anchor="w", padx=10, pady=8)
+        ctk.CTkButton(tab_start, text="Kalibratie zoekbalk",
+                      command=lambda: self._calib_key("boot_searchbar", tr("searchbar"))).pack(fill="x", padx=10, pady=8)
+        ctk.CTkCheckBox(tab_start, text="Snap verzenden op boot",
+                        variable=self.startup_send_snap,
+                        command=self._toggle_startup_send_snap).pack(anchor="w", padx=10, pady=8)
+
+    def _calibrate_from_settings(self):
+        mode = self.mode_var.get()
+        if mode == "sender":
+            self._full_calibration_sender()
+        elif mode == "responder":
+            self._full_calibration_responder()
+        else:
+            self._full_calibration_combi()
 
     # ----- Sender UI -----
     def _build_sender(self, root):
@@ -735,6 +895,7 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         btns = ttk.Frame(root); btns.grid(row=4, column=0, sticky="ew", pady=10)
         ttk.Button(btns, text=" " + tr("start_combi"), command=self._start_combi).grid(row=0, column=0, padx=6, sticky="w")
         ttk.Button(btns, text=" " + tr("stop_combi"), command=self._stop_combi).grid(row=0, column=1, padx=6, sticky="w")
+        ttk.Button(btns, text=" " + tr("send_reply"), command=self._combi_send_reply).grid(row=0, column=2, padx=6, sticky="w")
 
         self._combi_refresh_times()
 
@@ -839,7 +1000,9 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
                 for idx in persons:
                     p = self.cfg["personen"][idx]
                     if p: self._click_xy(tuple(p))
+                time.sleep(5)
                 self._click_xy(tuple(self.cfg["verzend"]))
+                time.sleep(2)
         except Exception as e:
             messagebox.showerror("Error", str(e))
         self.status_var.set(tr("status_done"))
@@ -948,25 +1111,26 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.after(0, self._exit_mini)
 
     def _respond_sequence(self, badge_xy):
-        """Klik rood blokje x2 met 0.5s ertussen, dan foto -> verstuur1 -> verstuur2, telkens 0.5s tussen moves/clicks."""
+        """Klik rood blokje, wacht, klik opnieuw, maak foto en verstuur."""
         with self.ui_lock:
-            # dubbelklik (gescheiden stappen met 0.5s)
-            self.move_then_click(badge_xy)               # klik 1
-            self.move_then_click(badge_xy)               # klik 2
+            x, y = badge_xy
+            pyautogui.moveTo(x, y)
+            pyautogui.click()
+            time.sleep(0.5)
+            pyautogui.click()
+            time.sleep(5)
 
             # foto
             foto_pos = self.cfg.get("foto1")
-            if not foto_pos: return False
+            if not foto_pos:
+                return False
             self.move_then_click(tuple(foto_pos))
+            time.sleep(2)
 
-            # versturen 1
-            s1 = self.cfg.get("verstuur_na_foto")
-            if not s1: return False
-            self.move_then_click(tuple(s1))
-
-            # versturen 2 (finale)
+            # versturen
             s2 = self.cfg.get("verzend")
-            if not s2: return False
+            if not s2:
+                return False
             self.move_then_click(tuple(s2))
 
             return True
@@ -1133,6 +1297,17 @@ class AutoSnapWindow(tk.Toplevel, MiniMixin):
         self.status_var.set(tr("status_done"))
         self.after(0, self._exit_mini)
 
+    def _combi_send_reply(self):
+        """Stuur een reply naar het eerste gevonden rode blokje."""
+        badges = self.cfg.get("responder_badges", [None]*8)
+        for pt in badges:
+            if not pt:
+                continue
+            x, y = pt
+            if red_in_radius(x, y, RADIUS_DEFAULT):
+                self._respond_sequence((x, y))
+                break
+
     def _get_current_combi_persons(self):
         sel = self._combi_selected_time()
         if sel and sel in self.combi_time_people:
@@ -1200,13 +1375,14 @@ def load_combined_data():
     except Exception:
         return None
 
-class AutoTikTokWindow(tk.Toplevel, MiniMixin):
+class AutoTikTokWindow(ctk.CTkToplevel, MiniMixin):
     def __init__(self, master, get_lang, set_lang, save_combined):
-        tk.Toplevel.__init__(self, master)
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang; self.save_combined = save_combined
         self.title(tr("autotiktok")); set_window_icon(self, APP_ICON_TT)
         self.geometry("740x780"); self.resizable(True, True); self.attributes("-topmost", True)
+        self.rowconfigure(0, weight=1); self.columnconfigure(0, weight=1)
 
         self.cfg = load_tt_config()
         self.status_var = tk.StringVar(value="")
@@ -1221,6 +1397,7 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
     def _build_ui(self):
         wrap = ttk.Frame(self, padding=20); wrap.grid(row=0, column=0, sticky="nsew")
         wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(3, weight=1)
 
         ttk.Label(wrap, text=tr("autotiktok"), font=("Segoe UI", 20, "bold")).grid(row=0, column=0, pady=(0, 16))
 
@@ -1242,8 +1419,9 @@ class AutoTikTokWindow(tk.Toplevel, MiniMixin):
         ent = ttk.Entry(desc_frame, textvariable=self.desc_var); ent.grid(row=0, column=0, sticky="ew")
         desc_frame.columnconfigure(0, weight=1)
 
-        sch = ttk.LabelFrame(wrap, text=tr("times"), padding=12); sch.grid(row=3, column=0, sticky="ew", pady=8)
+        sch = ttk.LabelFrame(wrap, text=tr("times"), padding=12); sch.grid(row=3, column=0, sticky="nsew", pady=8)
         for c in range(4): sch.columnconfigure(c, weight=1)
+        sch.rowconfigure(1, weight=1)
         ttk.Checkbutton(sch, text=tr("schedule_enable"), variable=self.schedule_enabled).grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
@@ -1488,13 +1666,14 @@ class Player:
                 if self._esc_listener: self._esc_listener.stop()
             except Exception: pass
 
-class AutoMouseWindow(tk.Toplevel, MiniMixin):
+class AutoMouseWindow(ctk.CTkToplevel, MiniMixin):
     def __init__(self, master, get_lang, set_lang):
-        tk.Toplevel.__init__(self, master)
+        ctk.CTkToplevel.__init__(self, master)
         MiniMixin.__init__(self)
         self.get_lang = get_lang; self.set_lang = set_lang
         self.title(tr("automouse")); set_window_icon(self, APP_ICON_MM)
         self.geometry("780x640"); self.resizable(True, True); self.attributes("-topmost", True)
+        self.rowconfigure(0, weight=1); self.columnconfigure(0, weight=1)
 
         self.recorder = Recorder(); self.player = None
         self.status_var = tk.StringVar(value=tr("status_done"))
@@ -1532,8 +1711,8 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 
     def _build_ui(self):
         wrap = ttk.Frame(self, padding=20); wrap.grid(row=0, column=0, sticky="nsew")
-        for r in range(9): wrap.rowconfigure(r, weight=0)
         wrap.columnconfigure(0, weight=1); wrap.columnconfigure(1, weight=1)
+        wrap.rowconfigure(3, weight=1)
 
         ttk.Label(wrap, text=tr("automouse"), font=("Segoe UI", 20, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 16), sticky="w")
 
@@ -1560,8 +1739,9 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
         ttk.OptionMenu(sf, self.speed_var, self.speed_var.get(), "0.5x", "1x", "2x").grid(row=0, column=6, sticky="w", padx=6, pady=6)
 
         sch = ttk.LabelFrame(wrap, text=tr("times"), padding=12)
-        sch.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
+        sch.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=8)
         for c in range(4): sch.columnconfigure(c, weight=1)
+        sch.rowconfigure(1, weight=1)
         ttk.Checkbutton(sch, text=tr("schedule_enable"), variable=self.schedule_enabled).grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Label(sch, text=tr("schedule_time")).grid(row=0, column=1, sticky="e")
         ttk.Entry(sch, textvariable=self.new_time_var, width=10).grid(row=0, column=2, padx=6, sticky="w")
@@ -1675,23 +1855,31 @@ class AutoMouseWindow(tk.Toplevel, MiniMixin):
 # -----------------------------------------------------------------------------
 class MultiMouseApp:
     def __init__(self):
-        data = load_combined_data() or {}
+        snap_cfg = load_snap_config()
+        data = load_combined_data() if snap_cfg.get("auto_load_settings") else None
+        if not isinstance(data, dict):
+            data = {}
         lang = data.get("language", CURRENT_LANG)
         globals()["CURRENT_LANG"] = lang
         dark_mode = bool(data.get("dark_mode", True))
 
-        self.root = None; self.style = None; self.using_tb = tb is not None
-        if self.using_tb:
-            self.root = tb.Window(themename="darkly"); self.style = tb.Style()
-        else:
-            self.root = tk.Tk(); self.style = ttk.Style()
-            try: self.style.theme_use("clam")
-            except Exception: pass
+        self.root = ctk.CTk(); self.style = ttk.Style()
+        try: self.style.theme_use("clam")
+        except Exception: pass
 
         self.root.title(tr("app_title"))
         self.root.geometry("900x560"); self.root.resizable(True, True)
-        self.root.attributes("-topmost", False)
+        self.root.rowconfigure(0, weight=1); self.root.columnconfigure(0, weight=1)
+        self.root.attributes("-topmost", True)
         set_window_icon(self.root, APP_ICON_MM)
+
+        # button icons
+        try:
+            self.icon_mouse = ctk.CTkImage(Image.open(APP_ICON_MM), size=(20,20))
+            self.icon_snap = ctk.CTkImage(Image.open(APP_ICON_SNAP), size=(20,20))
+            self.icon_tiktok = ctk.CTkImage(Image.open(APP_ICON_TT), size=(20,20))
+        except Exception:
+            self.icon_mouse = self.icon_snap = self.icon_tiktok = None
 
         self.lang_var = tk.StringVar(value=lang)
         self.dark_var = tk.BooleanVar(value=dark_mode)
@@ -1701,32 +1889,33 @@ class MultiMouseApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
-        wrap = ttk.Frame(self.root, padding=16); wrap.grid(row=0, column=0, sticky="nsew")
+        wrap = ctk.CTkFrame(self.root)
+        wrap.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
         for c in range(3): wrap.columnconfigure(c, weight=1)
+        wrap.rowconfigure(5, weight=1)
 
-        title = ttk.Label(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
+        title = ctk.CTkLabel(wrap, text=tr("app_title"), font=("Segoe UI", 22, "bold"))
         title.grid(row=0, column=0, columnspan=3, pady=(0, 14))
 
-        ttk.Button(wrap, text=" " + tr("open_autosnap"),  command=self.open_autosnap).grid(row=1, column=0, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_automouse"), command=self.open_automouse).grid(row=1, column=1, padx=10, pady=8, sticky="ew")
-        ttk.Button(wrap, text=" " + tr("open_autotiktok"), command=self.open_autotiktok).grid(row=1, column=2, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autosnap"), image=self.icon_snap, command=self.open_autosnap, compound="left").grid(row=1, column=0, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_automouse"), image=self.icon_mouse, command=self.open_automouse, compound="left").grid(row=1, column=1, padx=10, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=" " + tr("open_autotiktok"), image=self.icon_tiktok, command=self.open_autotiktok, compound="left").grid(row=1, column=2, padx=10, pady=8, sticky="ew")
 
-        bar = ttk.Frame(wrap, padding=(6, 4)); bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
+        bar = ctk.CTkFrame(wrap)
+        bar.grid(row=2, column=0, columnspan=3, pady=(8, 4), sticky="ew")
         for c in range(4): bar.columnconfigure(c, weight=1)
         small_font = ("Segoe UI", 8)
 
-        ttk.Label(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
-        lang = ttk.OptionMenu(bar, self.lang_var, self.lang_var.get(), "nl", "en", command=self._switch_lang)
+        ctk.CTkLabel(bar, text=tr("language"), font=small_font).grid(row=0, column=0, padx=4, sticky="e")
+        lang = ctk.CTkOptionMenu(bar, variable=self.lang_var, values=["nl", "en"], command=self._switch_lang)
         lang.grid(row=0, column=1, padx=4, sticky="w")
-        try: lang["menu"].configure(font=small_font)
-        except Exception: pass
 
-        ttk.Label(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
-        chk = ttk.Checkbutton(bar, variable=self.dark_var, command=self._apply_theme)
+        ctk.CTkLabel(bar, text=tr("dark_mode"), font=small_font).grid(row=0, column=2, padx=4, sticky="e")
+        chk = ctk.CTkCheckBox(bar, text="", variable=self.dark_var, command=self._apply_theme)
         chk.grid(row=0, column=3, padx=4, sticky="w")
 
-        ttk.Button(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(row=3, column=0, columnspan=3, pady=(0,4), sticky="ew")
-        ttk.Button(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(row=4, column=0, columnspan=3, pady=8, sticky="ew")
+        ctk.CTkButton(wrap, text=tr("load_settings"), command=self.load_combined_settings).grid(row=3, column=0, columnspan=3, pady=(0,4), sticky="ew")
+        ctk.CTkButton(wrap, text=tr("save_settings"), command=self.save_combined_settings).grid(row=4, column=0, columnspan=3, pady=8, sticky="ew")
 
     def _switch_lang(self, val):
         globals()["CURRENT_LANG"] = val
@@ -1734,28 +1923,40 @@ class MultiMouseApp:
         for w in list(self.root.children.values()): w.destroy()
         self._build_ui(); self._apply_theme()
 
-    def _apply_theme(self, initial=False):
+    def _apply_theme(self, initial=False, mark_dirty=True):
         is_dark = bool(self.dark_var.get())
-        if self.using_tb:
-            target = "darkly" if is_dark else "flatly"
-            try: self.style.theme_use(target)
-            except Exception: pass
-        else:
-            bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
-            try:
-                self.root.configure(bg=bg)
-            except Exception: pass
-            try:
-                self.style.configure(".", background=bg, foreground=fg)
-                self.style.configure("TLabel", background=bg, foreground=fg)
-                self.style.configure("TFrame", background=bg)
-                self.style.configure("TButton", background=bg, foreground=fg)
-                self.style.configure("TCheckbutton", background=bg, foreground=fg)
-                self.style.configure("TLabelframe", background=bg, foreground=fg)
-                self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
-                self.style.map("TButton", foreground=[("disabled", "#888888")])
-            except Exception: pass
-        if not initial:
+        ctk.set_appearance_mode("dark" if is_dark else "light")
+        bg = "#1e1e1e" if is_dark else "#f0f0f0"; fg = "#f5f5f5" if is_dark else "#111111"
+        try:
+            # use CTk's fg_color so foreground text isn't white on a white window
+            self.root.configure(fg_color=bg)
+        except Exception:
+            pass
+        try:
+            self.style.configure(".", background=bg, foreground=fg)
+            self.style.configure("TLabel", background=bg, foreground=fg)
+            self.style.configure("TFrame", background=bg)
+            self.style.configure("TButton", background=bg, foreground=fg)
+            self.style.configure("TCheckbutton", background=bg, foreground=fg)
+            self.style.configure("TLabelframe", background=bg, foreground=fg)
+            self.style.configure("TLabelframe.Label", background=bg, foreground=fg)
+            self.style.map("TButton", foreground=[("disabled", "#888888")])
+        except Exception:
+            pass
+        try:
+            sel_bg = "#444444" if is_dark else "#cccccc"
+            def style_listboxes(parent):
+                for w in parent.winfo_children():
+                    if isinstance(w, tk.Listbox):
+                        w.configure(bg=bg, fg=fg, selectbackground=sel_bg, selectforeground=fg)
+                    try:
+                        style_listboxes(w)
+                    except Exception:
+                        pass
+            style_listboxes(self.root)
+        except Exception:
+            pass
+        if mark_dirty and not initial:
             self.dirty = True
 
     def save_combined_settings(self):
@@ -1765,23 +1966,49 @@ class MultiMouseApp:
             "autosnap": load_snap_config(),
             "autotiktok": load_tt_config(),
         }
+        file_path = filedialog.asksaveasfilename(initialdir=str(EXTRA_SAVE_DIR),
+                                                defaultextension=".json",
+                                                filetypes=[("JSON", "*.json")])
+        if not file_path:
+            return
         try:
-            EXTRA_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-            EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+            text = json.dumps(data, indent=2)
+            Path(file_path).write_text(text, encoding="utf-8")
+            # onthoud laatst opgeslagen instellingen voor automatische scripts
+            EXTRA_SAVE_FILE.write_text(text, encoding="utf-8")
             messagebox.showinfo(tr("save_settings"), tr("saved"))
             self.dirty = False
         except Exception:
             messagebox.showerror(tr("save_settings"), "Kon instellingen niet opslaan")
 
     def load_combined_settings(self):
-        data = load_combined_data()
-        if not data:
+        file_path = filedialog.askopenfilename(initialdir=str(EXTRA_SAVE_DIR),
+                                               filetypes=[("JSON", "*.json")])
+        if not file_path:
+            messagebox.showerror(tr("load_settings"), "Geen opgeslagen instellingen")
+            return
+        try:
+            text = Path(file_path).read_text(encoding="utf-8")
+            data = json.loads(text)
+        except Exception:
             messagebox.showerror(tr("load_settings"), "Geen opgeslagen instellingen")
             return
         self.lang_var.set(data.get("language", self.lang_var.get()))
         self.dark_var.set(bool(data.get("dark_mode", False)))
         self._switch_lang(self.lang_var.get())
         self._apply_theme()
+        # bewaar als laatst geladen instellingen en werk feature-configs bij
+        try:
+            EXTRA_SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            snap = data.get("autosnap")
+            if isinstance(snap, dict):
+                save_snap_config(snap)
+            tt = data.get("autotiktok")
+            if isinstance(tt, dict):
+                save_tt_config(tt)
+        except Exception:
+            pass
         messagebox.showinfo(tr("load_settings"), tr("loaded"))
         self.dirty = False
 
@@ -1793,45 +2020,73 @@ class MultiMouseApp:
                 self.save_combined_settings()
         self.root.destroy()
 
-    def _show_child_modal(self, child_window: tk.Toplevel):
+    def _show_child_modal(self, child_window: ctk.CTkToplevel):
         # hoofdmenu blijft op achtergrond (niet topmost)
-        try: self.root.attributes("-topmost", False)
-        except Exception: pass
+        try:
+            self.root.attributes("-topmost", False)
+        except Exception:
+            pass
 
         self.root.withdraw()
+
         def on_close():
-            try: child_window.destroy()
+            try:
+                child_window.destroy()
             finally:
                 self.root.deiconify()
-                try: self.root.lift()
-                except Exception: pass
+                try:
+                    self.root.lift()
+                    self.root.attributes("-topmost", True)
+                except Exception:
+                    pass
+
         child_window.protocol("WM_DELETE_WINDOW", on_close)
         child_window.wait_window()
         self.root.deiconify()
+        try:
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
 
     def open_autosnap(self):
-        w = AutoSnapWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
+        w = AutoSnapWindow(
+            self.root,
+            lambda: self.lang_var.get(),
+            self._switch_lang,
+            self.save_combined_settings,
+            self.load_combined_settings,
+        )
         set_window_icon(w, APP_ICON_SNAP)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
         self.dirty = True
 
     def open_automouse(self):
         w = AutoMouseWindow(self.root, lambda: self.lang_var.get(), self._switch_lang)
         set_window_icon(w, APP_ICON_MM)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
 
     def open_autotiktok(self):
         w = AutoTikTokWindow(self.root, lambda: self.lang_var.get(), self._switch_lang, self.save_combined_settings)
         set_window_icon(w, APP_ICON_TT)
+        self._apply_theme(mark_dirty=False)
         self._show_child_modal(w)
         self.dirty = True
 
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
-if __name__ == "__main__":
+def main():
     try:
         app = MultiMouseApp()
         app.root.mainloop()
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        _fatal(f"Onverwachte fout: {e}")
+
+
+if __name__ == "__main__":
+    main()
