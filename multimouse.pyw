@@ -222,6 +222,7 @@ LANGS = {
         "windows_startup": "Start bij Windows",
         "autoload_settings": "Instellingen automatisch laden bij start",
         "startup_settings_file": "Instellingenbestand bij start",
+        "startup_delay": "Startvertraging (10s)",
         "color_scanner": "Kleur scanner",
         "use_color_scanner": "Kleur scanner gebruiken",
     },
@@ -294,6 +295,7 @@ LANGS = {
         "windows_startup": "Start with Windows",
         "autoload_settings": "Auto-load settings at startup",
         "startup_settings_file": "Startup settings file",
+        "startup_delay": "Startup delay (10s)",
         "color_scanner": "Color scanner",
         "use_color_scanner": "Use color scanner",
     }
@@ -546,6 +548,7 @@ DEFAULT_SNAP_CONFIG = {
     "restart_after_snaps": 0,
     "restart_after_minutes": 0,
     "startup_enabled": False,
+    "startup_delay": False,
     "boot_searchbar": None,
     "snapchat_shortcut": None,
     "action_delay": 0.5,
@@ -673,6 +676,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.combi_running = threading.Event()
         self.combi_send_on_start = tk.BooleanVar(value=bool(self.cfg.get("send_snap_on_start")))
         self.combi_send_on_start.trace_add("write", lambda *_: self._save_combi_send_on_start())
+        self.start_delay = tk.BooleanVar(value=bool(self.cfg.get("startup_delay")))
+        self.start_delay.trace_add("write", lambda *_: self._save_startup_delay())
         self.hourly_restart = tk.BooleanVar(value=False)  # kan aan/uit
         self.restart_after_snaps = tk.IntVar(value=int(self.cfg.get("restart_after_snaps", 0)))
         self.restart_after_minutes = tk.IntVar(value=int(self.cfg.get("restart_after_minutes", 0)))
@@ -755,6 +760,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.autoload_file_var.set(self.cfg.get("auto_settings_file", ""))
         self.snap_shortcut_var.set(self.cfg.get("snapchat_shortcut", ""))
         self.combi_send_on_start.set(bool(self.cfg.get("send_snap_on_start")))
+        self.start_delay.set(bool(self.cfg.get("startup_delay")))
         self.times = self.cfg.get("times", []).copy()
         self.time_people = self.cfg.get("time_people", {}).copy()
         try:
@@ -784,6 +790,10 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _save_combi_send_on_start(self):
         self.cfg["send_snap_on_start"] = bool(self.combi_send_on_start.get())
+        save_snap_config(self.cfg)
+
+    def _save_startup_delay(self):
+        self.cfg["startup_delay"] = bool(self.start_delay.get())
         save_snap_config(self.cfg)
 
     def _choose_snap_shortcut(self):
@@ -1015,7 +1025,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ttk.Label(opts, text=tr("restart_after_minutes")).grid(row=1, column=0, sticky="w")
         ttk.Entry(opts, textvariable=self.restart_after_minutes).grid(row=1, column=1, sticky="ew")
         ttk.Checkbutton(opts, text=tr("send_snap_on_start"), variable=self.combi_send_on_start).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("startup_delay"), variable=self.start_delay).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=4, column=0, columnspan=2, sticky="w")
 
         # Start/stop
         btns = ttk.Frame(root); btns.grid(row=3, column=0, sticky="ew", pady=10)

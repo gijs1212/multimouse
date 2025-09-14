@@ -14,6 +14,8 @@ mm = _load_mm()
 
 def open_snapchat():
     cfg = mm.load_snap_config()
+    if cfg.get("startup_delay"):
+        time.sleep(10.0)
     link = cfg.get("snapchat_shortcut") or (Path.home() / "Desktop" / "Snapchat.lnk")
     link = Path(link)
     if not link.exists():
