@@ -688,9 +688,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         if not pos:
             return
         delay = self.action_delay_var.get()
+goede-versie-1
         move_dur = max(0.2, delay)
         x, y = pos
         pyautogui.moveTo(x, y, duration=move_dur)
+
         pyautogui.click()
         if delay > 0:
             time.sleep(delay)
@@ -1288,12 +1290,16 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
     def _respond_sequence(self, badge_xy):
         """Open snap, maak foto en verstuur."""
         with self.ui_lock:
+ goede-versie-1
             move_dur = max(0.2, self.action_delay_var.get())
+
             orig_pause = pyautogui.PAUSE
             pyautogui.PAUSE = 0
             try:
                 x, y = badge_xy
+goede-versie-1
                 pyautogui.moveTo(x, y, duration=move_dur)
+
                 pyautogui.click()
                 time.sleep(1)
                 pyautogui.click()
@@ -1303,7 +1309,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 if not foto_pos:
                     return False
                 fx, fy = foto_pos
+ goede-versie-1
                 pyautogui.moveTo(fx, fy, duration=move_dur)
+
                 pyautogui.click()
                 time.sleep(1)
 
@@ -1311,7 +1319,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 if not s2:
                     return False
                 sx, sy = s2
+
                 pyautogui.moveTo(sx, sy, duration=move_dur)
+
                 pyautogui.click()
                 time.sleep(1)
                 return True
