@@ -222,6 +222,7 @@ LANGS = {
         "windows_startup": "Start bij Windows",
         "autoload_settings": "Instellingen automatisch laden bij start",
         "startup_settings_file": "Instellingenbestand bij start",
+        "startup_delay": "Startvertraging (10s)",
         "color_scanner": "Kleur scanner",
         "use_color_scanner": "Kleur scanner gebruiken",
     },
@@ -294,6 +295,7 @@ LANGS = {
         "windows_startup": "Start with Windows",
         "autoload_settings": "Auto-load settings at startup",
         "startup_settings_file": "Startup settings file",
+        "startup_delay": "Startup delay (10s)",
         "color_scanner": "Color scanner",
         "use_color_scanner": "Use color scanner",
     }
@@ -541,11 +543,13 @@ DEFAULT_SNAP_CONFIG = {
     "responder_badges": [None]*8,         # badge pos
     "restart_close_app": None,            # App X (rechtsboven)
     "restart_searchbar": None,            # Zoekbalk
+    "close_spotlight": None,              # Spotlight sluiten
     "scanner_color": None,                # RGB voor badge-detectie
     "use_color_scanner": False,
     "restart_after_snaps": 0,
     "restart_after_minutes": 0,
     "startup_enabled": False,
+    "startup_delay": False,
     "boot_searchbar": None,
     "snapchat_shortcut": None,
     "action_delay": 0.5,
@@ -581,6 +585,22 @@ def save_snap_config(cfg):
             p.write_text(text, encoding="utf-8")
             if p != EXTRA_SAVE_FILE:
                 EXTRA_SAVE_FILE.write_text(text, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def close_spotlight(cfg=None):
+    """Klik op de ingestelde positie om Spotlight te sluiten."""
+    if cfg is None:
+        cfg = load_snap_config()
+    pos = cfg.get("close_spotlight")
+    if not pos:
+        return
+    try:
+        x, y = pos
+        pyautogui.moveTo(x, y, duration=0.2)
+        pyautogui.click()
+        time.sleep(0.5)
     except Exception:
         pass
 
@@ -673,6 +693,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.combi_running = threading.Event()
         self.combi_send_on_start = tk.BooleanVar(value=bool(self.cfg.get("send_snap_on_start")))
         self.combi_send_on_start.trace_add("write", lambda *_: self._save_combi_send_on_start())
+        self.start_delay = tk.BooleanVar(value=bool(self.cfg.get("startup_delay")))
+        self.start_delay.trace_add("write", lambda *_: self._save_startup_delay())
         self.hourly_restart = tk.BooleanVar(value=False)  # kan aan/uit
         self.restart_after_snaps = tk.IntVar(value=int(self.cfg.get("restart_after_snaps", 0)))
         self.restart_after_minutes = tk.IntVar(value=int(self.cfg.get("restart_after_minutes", 0)))
@@ -755,6 +777,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.autoload_file_var.set(self.cfg.get("auto_settings_file", ""))
         self.snap_shortcut_var.set(self.cfg.get("snapchat_shortcut", ""))
         self.combi_send_on_start.set(bool(self.cfg.get("send_snap_on_start")))
+        self.start_delay.set(bool(self.cfg.get("startup_delay")))
         self.times = self.cfg.get("times", []).copy()
         self.time_people = self.cfg.get("time_people", {}).copy()
         try:
@@ -784,6 +807,10 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _save_combi_send_on_start(self):
         self.cfg["send_snap_on_start"] = bool(self.combi_send_on_start.get())
+        save_snap_config(self.cfg)
+
+    def _save_startup_delay(self):
+        self.cfg["startup_delay"] = bool(self.start_delay.get())
         save_snap_config(self.cfg)
 
     def _choose_snap_shortcut(self):
@@ -865,8 +892,6 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         mode = self.mode_var.get()
         if mode == "sender":
             self._full_calibration_sender()
-        elif mode == "responder":
-            self._full_calibration_responder()
         else:
             self._full_calibration_combi()
 
@@ -957,9 +982,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                    command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("searchbar"),
                    command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Spotlight",
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
 
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_responder).grid(row=4, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_responder).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
 
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
         opts.grid(row=2, column=0, sticky="ew", pady=8)
@@ -1003,8 +1030,10 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                    command=lambda: self._calib_key("restart_close_app", tr("restart_close"))).grid(row=9, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("restart_search"),
                    command=lambda: self._calib_key("restart_searchbar", tr("restart_search"))).grid(row=10, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Spotlight",
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=11, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_combi).grid(row=11, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_combi).grid(row=12, column=0, padx=6, pady=(6,0), sticky="ew")
 
         # Opties
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
@@ -1015,7 +1044,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ttk.Label(opts, text=tr("restart_after_minutes")).grid(row=1, column=0, sticky="w")
         ttk.Entry(opts, textvariable=self.restart_after_minutes).grid(row=1, column=1, sticky="ew")
         ttk.Checkbutton(opts, text=tr("send_snap_on_start"), variable=self.combi_send_on_start).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("startup_delay"), variable=self.start_delay).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=4, column=0, columnspan=2, sticky="w")
 
         # Start/stop
         btns = ttk.Frame(root); btns.grid(row=3, column=0, sticky="ew", pady=10)
@@ -1259,6 +1289,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self._calib_key("foto_reply", "Foto (reply)")
         self._calib_key("verzend_reply", tr("send_reply"))
         self._calib_key("restart_searchbar", tr("searchbar"))
+        self._calib_key("close_spotlight", "Spotlight")
 
     def _start_responder(self):
         required = [
@@ -1376,10 +1407,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 except Exception:
                     pass
                 time.sleep(2.0)  # korte wachttijd tot UI opkomt
+                close_spotlight(self.cfg)
 
     # ---------- Combi logic ----------
     def _full_calibration_combi(self):
-        # volgorde: rode blokjes, foto's, versturen1, versturen2, app-sluiten, zoekbalk
+        # volgorde: rode blokjes, foto's, versturen1, versturen2, app-sluiten, zoekbalk, spotlight
         self._calib_responder_badges()
         for key, label in [
             ("foto1", "Foto 1 (sender)"),
@@ -1398,6 +1430,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         for key, label in [
             ("restart_close_app", tr("restart_close")),
             ("restart_searchbar", tr("restart_search")),
+            ("close_spotlight", "Spotlight"),
         ]:
             self._calib_key(key, label)
 
