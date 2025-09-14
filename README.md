@@ -1,4 +1,3 @@
-# multimouse
 multimouse is an tinytask alternative (now called remouse) it records mouse movement/clicks/scrolls and keyboard clicks. this is not paid, but it still needs work. feel free to publish better versions
 make sure the .ico files are in the same folder as the .pyw file
 
@@ -18,4 +17,3 @@ make sure the .ico files are in the same folder as the .pyw file
 - Enable **Send snap on start** in the combi tab to send one snap to all calibrated recipients, then restart Snapchat before the responder loop begins.
 - You can choose to restart Snapchat after a set number of snaps or minutes; leave the fields empty to disable.
 - When sending a snap (not replying), AutoSnap taps **Foto 1**, then **Foto 2**, taps **Send to**, selects each configured person and finally taps **Verzend**.
-- When scheduling, you may enter times as `HH:MM` or `HHMM`; typing `1953` becomes `19:53` and runs using your PC's clock.
