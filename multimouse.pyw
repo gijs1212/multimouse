@@ -202,6 +202,7 @@ LANGS = {
         "sender": "Sender",
         "responder": "Responder",
         "combi": "Combi",
+        "story_editor": "Verhaal bewerker",
         "badge_points": "Rode blokjes (1..8)",
         "recent_second": "Recent #2 (Send To)",
         "speed": "Snelheid",
@@ -209,6 +210,7 @@ LANGS = {
         "stop_responder": "Stop Responder",
         "start_combi": "Start Combi",
         "stop_combi": "Stop Combi",
+        "start_story": "Start verhaal",
         "send_reply": "Versturen reply",
         "send_snap_on_start": "Send snap on start",
         "restart_after_snaps": "Herstart na snaps",
@@ -222,6 +224,7 @@ LANGS = {
         "windows_startup": "Start bij Windows",
         "autoload_settings": "Instellingen automatisch laden bij start",
         "startup_settings_file": "Instellingenbestand bij start",
+        "startup_delay": "Startvertraging (10s)",
         "color_scanner": "Kleur scanner",
         "use_color_scanner": "Kleur scanner gebruiken",
     },
@@ -274,6 +277,7 @@ LANGS = {
         "sender": "Sender",
         "responder": "Responder",
         "combi": "Combi",
+        "story_editor": "Story editor",
         "badge_points": "Badge points (1..8)",
         "recent_second": "Recent #2 (Send To)",
         "speed": "Speed",
@@ -281,6 +285,7 @@ LANGS = {
         "stop_responder": "Stop Responder",
         "start_combi": "Start Combi",
         "stop_combi": "Stop Combi",
+        "start_story": "Start story",
         "send_reply": "Send reply",
         "send_snap_on_start": "Send snap on start",
         "restart_after_snaps": "Restart after snaps",
@@ -294,6 +299,7 @@ LANGS = {
         "windows_startup": "Start with Windows",
         "autoload_settings": "Auto-load settings at startup",
         "startup_settings_file": "Startup settings file",
+        "startup_delay": "Startup delay (10s)",
         "color_scanner": "Color scanner",
         "use_color_scanner": "Use color scanner",
     }
@@ -533,6 +539,8 @@ AUTOSNAP_CONFIG_FILE = AUTOSNAP_DIR / "autosnap_config.json"
 DEFAULT_SNAP_CONFIG = {
     # Sender
     "foto1": None, "foto2": None, "verstuur_na_foto": None, "personen": [None]*8, "verzend": None,
+    # Story bewerker
+    "story_foto1": None, "story_foto2": None, "story_story": None, "story_verzend": None,
     "times": [],                     # ["08:00","21:30",...]
     "time_people": {},               # map tijd -> [bool x 8]
     # Responder/Combi
@@ -541,11 +549,13 @@ DEFAULT_SNAP_CONFIG = {
     "responder_badges": [None]*8,         # badge pos
     "restart_close_app": None,            # App X (rechtsboven)
     "restart_searchbar": None,            # Zoekbalk
+    "close_spotlight": None,              # Spotlight sluiten
     "scanner_color": None,                # RGB voor badge-detectie
     "use_color_scanner": False,
     "restart_after_snaps": 0,
     "restart_after_minutes": 0,
     "startup_enabled": False,
+    "startup_delay": False,
     "boot_searchbar": None,
     "snapchat_shortcut": None,
     "action_delay": 0.5,
@@ -581,6 +591,22 @@ def save_snap_config(cfg):
             p.write_text(text, encoding="utf-8")
             if p != EXTRA_SAVE_FILE:
                 EXTRA_SAVE_FILE.write_text(text, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def close_spotlight(cfg=None):
+    """Klik op de ingestelde positie om Spotlight te sluiten."""
+    if cfg is None:
+        cfg = load_snap_config()
+    pos = cfg.get("close_spotlight")
+    if not pos:
+        return
+    try:
+        x, y = pos
+        pyautogui.moveTo(x, y, duration=0.2)
+        pyautogui.click()
+        time.sleep(0.5)
     except Exception:
         pass
 
@@ -671,8 +697,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         # Responder/Combi state
         self.responder_running = threading.Event()
         self.combi_running = threading.Event()
+        self.story_running = threading.Event()
         self.combi_send_on_start = tk.BooleanVar(value=bool(self.cfg.get("send_snap_on_start")))
         self.combi_send_on_start.trace_add("write", lambda *_: self._save_combi_send_on_start())
+        self.start_delay = tk.BooleanVar(value=bool(self.cfg.get("startup_delay")))
+        self.start_delay.trace_add("write", lambda *_: self._save_startup_delay())
         self.hourly_restart = tk.BooleanVar(value=False)  # kan aan/uit
         self.restart_after_snaps = tk.IntVar(value=int(self.cfg.get("restart_after_snaps", 0)))
         self.restart_after_minutes = tk.IntVar(value=int(self.cfg.get("restart_after_minutes", 0)))
@@ -727,15 +756,19 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                         command=self._refresh_mode).grid(row=0, column=1, padx=8, sticky="w")
         ttk.Radiobutton(mode_frame, text=tr("combi"), variable=self.mode_var, value="combi",
                         command=self._refresh_mode).grid(row=0, column=2, padx=8, sticky="w")
+        ttk.Radiobutton(mode_frame, text=tr("story_editor"), variable=self.mode_var, value="story",
+                        command=self._refresh_mode).grid(row=0, column=3, padx=8, sticky="w")
         ttk.Button(top, text="⚙", width=3, command=self._open_settings).grid(row=0, column=1, sticky="e", padx=(6,0))
 
         self.sender_frame = ttk.Frame(wrap, padding=4); self.sender_frame.grid(row=1, column=0, sticky="nsew")
         self.responder_frame = ttk.Frame(wrap, padding=4); self.responder_frame.grid(row=1, column=0, sticky="nsew")
         self.combi_frame = ttk.Frame(wrap, padding=4); self.combi_frame.grid(row=1, column=0, sticky="nsew")
+        self.story_frame = ttk.Frame(wrap, padding=4); self.story_frame.grid(row=1, column=0, sticky="nsew")
 
         self._build_sender(self.sender_frame)
         self._build_responder(self.responder_frame)
         self._build_combi(self.combi_frame)
+        self._build_story(self.story_frame)
 
         btn_row = ttk.Frame(wrap)
         btn_row.grid(row=2, column=0, sticky="e", pady=(0,5))
@@ -755,6 +788,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.autoload_file_var.set(self.cfg.get("auto_settings_file", ""))
         self.snap_shortcut_var.set(self.cfg.get("snapchat_shortcut", ""))
         self.combi_send_on_start.set(bool(self.cfg.get("send_snap_on_start")))
+        self.start_delay.set(bool(self.cfg.get("startup_delay")))
         self.times = self.cfg.get("times", []).copy()
         self.time_people = self.cfg.get("time_people", {}).copy()
         try:
@@ -764,9 +798,14 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _refresh_mode(self):
         m = self.mode_var.get()
-        if m == "sender": self.sender_frame.lift()
-        elif m == "responder": self.responder_frame.lift()
-        else: self.combi_frame.lift()
+        if m == "sender":
+            self.sender_frame.lift()
+        elif m == "responder":
+            self.responder_frame.lift()
+        elif m == "story":
+            self.story_frame.lift()
+        else:
+            self.combi_frame.lift()
 
     def _toggle_startup(self):
         enabled = bool(self.startup_enabled.get())
@@ -784,6 +823,10 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _save_combi_send_on_start(self):
         self.cfg["send_snap_on_start"] = bool(self.combi_send_on_start.get())
+        save_snap_config(self.cfg)
+
+    def _save_startup_delay(self):
+        self.cfg["startup_delay"] = bool(self.start_delay.get())
         save_snap_config(self.cfg)
 
     def _choose_snap_shortcut(self):
@@ -867,6 +910,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             self._full_calibration_sender()
         elif mode == "responder":
             self._full_calibration_responder()
+        elif mode == "story":
+            self._full_calibration_story()
         else:
             self._full_calibration_combi()
 
@@ -957,9 +1002,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                    command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("searchbar"),
                    command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Spotlight",
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
 
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_responder).grid(row=4, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_responder).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
 
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
         opts.grid(row=2, column=0, sticky="ew", pady=8)
@@ -1003,8 +1050,10 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                    command=lambda: self._calib_key("restart_close_app", tr("restart_close"))).grid(row=9, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("restart_search"),
                    command=lambda: self._calib_key("restart_searchbar", tr("restart_search"))).grid(row=10, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Spotlight",
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=11, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_combi).grid(row=11, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_combi).grid(row=12, column=0, padx=6, pady=(6,0), sticky="ew")
 
         # Opties
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
@@ -1015,13 +1064,130 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ttk.Label(opts, text=tr("restart_after_minutes")).grid(row=1, column=0, sticky="w")
         ttk.Entry(opts, textvariable=self.restart_after_minutes).grid(row=1, column=1, sticky="ew")
         ttk.Checkbutton(opts, text=tr("send_snap_on_start"), variable=self.combi_send_on_start).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("startup_delay"), variable=self.start_delay).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=4, column=0, columnspan=2, sticky="w")
 
         # Start/stop
         btns = ttk.Frame(root); btns.grid(row=3, column=0, sticky="ew", pady=10)
         ttk.Button(btns, text=" " + tr("start_combi"), command=self._start_combi).grid(row=0, column=0, padx=6, sticky="w")
         ttk.Button(btns, text=" " + tr("stop_combi"), command=self._stop_combi).grid(row=0, column=1, padx=6, sticky="w")
         ttk.Button(btns, text=" " + tr("send_reply"), command=self._combi_send_reply).grid(row=0, column=2, padx=6, sticky="w")
+
+    def _build_story(self, root):
+        root.columnconfigure(0, weight=1)
+        ttk.Label(root, text=tr("story_editor"), font=("Segoe UI", 18, "bold")).grid(row=0, column=0, pady=(0, 10), sticky="w")
+
+        calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
+        calib.grid(row=1, column=0, sticky="ew", pady=8)
+        for c in range(2):
+            calib.columnconfigure(c, weight=1)
+
+        ttk.Button(
+            calib,
+            text=" Foto 1 (verhaal)",
+            command=lambda: self._calib_key("story_foto1", "Foto 1 (verhaal)"),
+        ).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(
+            calib,
+            text=" Foto 2 (verhaal)",
+            command=lambda: self._calib_key("story_foto2", "Foto 2 (verhaal)"),
+        ).grid(row=0, column=1, padx=6, pady=6, sticky="ew")
+        ttk.Button(
+            calib,
+            text=" Verhaal",
+            command=lambda: self._calib_key("story_story", "Verhaal"),
+        ).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(
+            calib,
+            text=" " + tr("send"),
+            command=lambda: self._calib_key("story_verzend", tr("send")),
+        ).grid(row=1, column=1, padx=6, pady=6, sticky="ew")
+        ttk.Button(
+            calib,
+            text=" " + tr("full_calibration"),
+            command=self._full_calibration_story,
+        ).grid(row=2, column=0, columnspan=2, padx=6, pady=(6,0), sticky="ew")
+
+        ttk.Button(root, text=" " + tr("start_story"), command=self._start_story).grid(row=2, column=0, pady=12, sticky="ew")
+
+    def _full_calibration_story(self):
+        sequence = [
+            ("story_foto1", "Foto 1 (verhaal)"),
+            ("story_foto2", "Foto 2 (verhaal)"),
+            ("story_story", "Verhaal"),
+            ("story_verzend", tr("send")),
+        ]
+        for key, label in sequence:
+            pos = calibrate_position_snap(self, label)
+            if not pos:
+                return
+            self.cfg[key] = pos
+            save_snap_config(self.cfg)
+        toast(self, tr("saved"), "Verhaal kalibratie opgeslagen", timeout=2000)
+
+    def _start_story(self):
+        required = [
+            ("story_foto1", "Foto 1 (verhaal)"),
+            ("story_foto2", "Foto 2 (verhaal)"),
+            ("story_story", "Verhaal"),
+            ("story_verzend", tr("send")),
+        ]
+        if not self._ensure_calibrated(required):
+            return
+        if self.story_running.is_set():
+            return
+        self.story_running.set()
+        self._enter_mini(stop_callback=self._stop_story, banner_text=tr("mini_msg"))
+        threading.Thread(target=self._run_story_sequence, daemon=True).start()
+
+    def _stop_story(self):
+        self.story_running.clear()
+        self.status_var.set(tr("status_stopped"))
+        self.after(0, self._exit_mini)
+
+    def _story_wait(self, seconds=1.0):
+        end_time = time.time() + seconds
+        while self.story_running.is_set():
+            remaining = end_time - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.1, remaining))
+
+    def _run_story_sequence(self):
+        self.status_var.set(tr("status_busy"))
+        actions = [
+            ("story_foto1", "Foto 1 (verhaal)"),
+            ("story_foto2", "Foto 2 (verhaal)"),
+            ("story_story", "Verhaal"),
+            ("story_verzend", tr("send")),
+        ]
+        orig_pause = pyautogui.PAUSE
+        completed = False
+        try:
+            pyautogui.PAUSE = 0
+            with self.ui_lock:
+                for idx, (key, _) in enumerate(actions):
+                    if not self.story_running.is_set():
+                        break
+                    pos = self.cfg.get(key)
+                    if not pos:
+                        break
+                    x, y = pos
+                    move_dur = max(0.2, self.action_delay_var.get())
+                    pyautogui.moveTo(x, y, duration=move_dur)
+                    pyautogui.click()
+                    if idx < len(actions) - 1:
+                        self._story_wait(1.0)
+            if self.story_running.is_set():
+                completed = True
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+        finally:
+            pyautogui.PAUSE = orig_pause
+            if completed:
+                self.status_var.set(tr("status_done"))
+            self.story_running.clear()
+            self.after(0, self._exit_mini)
 
     # ---------- Sender logic ----------
     def _full_calibration_sender(self):
@@ -1259,6 +1425,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self._calib_key("foto_reply", "Foto (reply)")
         self._calib_key("verzend_reply", tr("send_reply"))
         self._calib_key("restart_searchbar", tr("searchbar"))
+        self._calib_key("close_spotlight", "Spotlight")
 
     def _start_responder(self):
         required = [
@@ -1376,10 +1543,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 except Exception:
                     pass
                 time.sleep(2.0)  # korte wachttijd tot UI opkomt
+                close_spotlight(self.cfg)
 
     # ---------- Combi logic ----------
     def _full_calibration_combi(self):
-        # volgorde: rode blokjes, foto's, versturen1, versturen2, app-sluiten, zoekbalk
+        # volgorde: rode blokjes, foto's, versturen1, versturen2, app-sluiten, zoekbalk, spotlight
         self._calib_responder_badges()
         for key, label in [
             ("foto1", "Foto 1 (sender)"),
@@ -1398,6 +1566,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         for key, label in [
             ("restart_close_app", tr("restart_close")),
             ("restart_searchbar", tr("restart_search")),
+            ("close_spotlight", "Spotlight"),
         ]:
             self._calib_key(key, label)
 
