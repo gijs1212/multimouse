@@ -536,40 +536,85 @@ def white_in_radius(x,y,radius=RADIUS_DEFAULT): return any_match_in_radius(x,y,_
 # AutoSnap (Sender/Responder/Combi)
 # -----------------------------------------------------------------------------
 AUTOSNAP_CONFIG_FILE = AUTOSNAP_DIR / "autosnap_config.json"
-DEFAULT_SNAP_CONFIG = {
-    # Sender
-    "foto1": None, "foto2": None, "verstuur_na_foto": None, "personen": [None]*8, "verzend": None,
-    # Story bewerker
-    "story_foto1": None, "story_foto2": None, "story_send_to": None, "story_story": None, "story_verzend": None,
-    "times": [],                     # ["08:00","21:30",...]
-    "time_people": {},               # map tijd -> [bool x 8]
-    # Responder/Combi
-    "foto_reply": None,                   # Foto knop voor replies
-    "verzend_reply": None,               # Verzendknop voor replies
-    "responder_badges": [None]*8,         # badge pos
-    "restart_close_app": None,            # App X (rechtsboven)
-    "restart_searchbar": None,            # Zoekbalk
-    "close_spotlight": None,              # Spotlight sluiten
-    "scanner_color": None,                # RGB voor badge-detectie
-    "use_color_scanner": False,
-    "restart_after_snaps": 0,
-    "restart_after_minutes": 0,
-    "startup_enabled": False,
-    "startup_delay": False,
-    "boot_searchbar": None,
-    "snapchat_shortcut": None,
-    "action_delay": 0.5,
-    "auto_load_settings": False,
-    "auto_settings_file": None,
-}
+PERSON_COUNT = 10
+
+
+def _ensure_list_length(seq, length, fill_value=None):
+    arr = list(seq or [])
+    if len(arr) < length:
+        arr.extend([fill_value] * (length - len(arr)))
+    else:
+        arr = arr[:length]
+    return arr
+
+
+def _default_snap_config():
+    return {
+        # Sender
+        "foto1": None,
+        "foto2": None,
+        "verstuur_na_foto": None,
+        "personen": [None] * PERSON_COUNT,
+        "verzend": None,
+        # Story bewerker
+        "story_foto1": None,
+        "story_foto2": None,
+        "story_send_to": None,
+        "story_story": None,
+        "story_verzend": None,
+        "times": [],                     # ["08:00","21:30",...]
+        "time_people": {},               # map tijd -> [bool x PERSON_COUNT]
+        # Responder/Combi
+        "foto_reply": None,              # Foto knop voor replies
+        "verzend_reply": None,           # Verzendknop voor replies
+        "responder_badges": [None] * PERSON_COUNT,  # badge pos
+        "restart_close_app": None,       # App X (rechtsboven)
+        "restart_searchbar": None,       # Zoekbalk
+        "close_spotlight": None,         # Spotlight sluiten
+        "scanner_color": None,           # RGB voor badge-detectie
+        "use_color_scanner": False,
+        "restart_after_snaps": 0,
+        "restart_after_minutes": 0,
+        "startup_enabled": False,
+        "startup_delay": False,
+        "boot_searchbar": None,
+        "snapchat_shortcut": None,
+        "action_delay": 0.5,
+        "auto_load_settings": False,
+        "auto_settings_file": None,
+    }
+
+
+def _normalize_snap_config(cfg):
+    cfg.setdefault("personen", [])
+    cfg["personen"] = _ensure_list_length(cfg["personen"], PERSON_COUNT)
+    cfg.setdefault("responder_badges", [])
+    badges = _ensure_list_length(cfg["responder_badges"], PERSON_COUNT)
+    cfg["responder_badges"] = [list(b) if isinstance(b, (list, tuple)) else b for b in badges]
+    time_people = cfg.get("time_people", {})
+    if not isinstance(time_people, dict):
+        time_people = {}
+    normalized_time_people = {}
+    for key, values in time_people.items():
+        normalized_time_people[key] = [bool(v) for v in _ensure_list_length(values, PERSON_COUNT, False)]
+    cfg["time_people"] = normalized_time_people
+    return cfg
+
 
 def load_snap_config():
+    cfg = _default_snap_config()
     if AUTOSNAP_CONFIG_FILE.exists():
-        try: return json.loads(AUTOSNAP_CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception: pass
-    return DEFAULT_SNAP_CONFIG.copy()
+        try:
+            data = json.loads(AUTOSNAP_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                cfg.update(data)
+        except Exception:
+            pass
+    return _normalize_snap_config(cfg)
+
 
 def save_snap_config(cfg):
+    cfg = _normalize_snap_config(cfg)
     AUTOSNAP_CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     try:
         path = None
@@ -593,6 +638,7 @@ def save_snap_config(cfg):
                 EXTRA_SAVE_FILE.write_text(text, encoding="utf-8")
     except Exception:
         pass
+
 
 
 def close_spotlight(cfg=None):
@@ -681,7 +727,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.settings_win = None
 
         # Sender state
-        self.person_vars = [tk.BooleanVar(value=True) for _ in range(8)]
+        self.person_vars = [tk.BooleanVar(value=(i < 8)) for i in range(PERSON_COUNT)]
         self.count_var = tk.IntVar(value=1)
         self.until_var = tk.BooleanVar(value=False)
         self.delay_var = tk.DoubleVar(value=1.0)
@@ -923,7 +969,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
         calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="nsew", pady=8)
-        calib.columnconfigure(0, weight=1)
+        for c in range(3):
+            calib.columnconfigure(c, weight=1)
 
         cam_ic = None
         send_ic = None
@@ -942,11 +989,15 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ttk.Button(calib, text=" " + tr("send"),
                    command=lambda: self._calib_key("verzend", tr("send"))).grid(row=1, column=1, padx=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("full_calibration"), command=self._full_calibration_sender).grid(row=1, column=2, padx=6, sticky="ew")
+        ttk.Button(calib, text=" Persoon 9 (sender)",
+                   command=lambda: self._calib_single_person(8)).grid(row=2, column=0, padx=6, pady=(6,0), sticky="ew")
+        ttk.Button(calib, text=" Persoon 10 (sender)",
+                   command=lambda: self._calib_single_person(9)).grid(row=2, column=1, padx=6, pady=(6,0), sticky="ew")
 
         pf = ttk.LabelFrame(root, text=tr("people"), padding=12)
         pf.grid(row=2, column=0, sticky="ew", pady=8)
         for c in range(4): pf.columnconfigure(c, weight=1)
-        for i in range(8):
+        for i in range(PERSON_COUNT):
             ttk.Checkbutton(pf, text=f"Person {i+1}", variable=self.person_vars[i]).grid(row=i//4, column=i%4, padx=8, pady=6, sticky="w")
 
         sf = ttk.LabelFrame(root, text=tr("settings"), padding=12)
@@ -973,11 +1024,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.times_list.bind("<Double-Button-1>", lambda e: self._show_time_people())
         ttk.Button(sch, text=tr("remove_time"), command=self._remove_time).grid(row=1, column=2, padx=6, sticky="nw")
 
-        self.time_people_vars = [tk.BooleanVar(value=False) for _ in range(8)]
+        self.time_people_vars = [tk.BooleanVar(value=False) for _ in range(PERSON_COUNT)]
         per_frame = ttk.LabelFrame(sch, text=tr("people"), padding=10)
         per_frame.grid(row=1, column=3, sticky="nsew", padx=6, pady=6)
         for c in range(2): per_frame.columnconfigure(c, weight=1)
-        for i in range(8):
+        for i in range(PERSON_COUNT):
             ttk.Checkbutton(per_frame, text=f"P{i+1}", variable=self.time_people_vars[i]).grid(row=i//2, column=i%2, sticky="w")
 
         ttk.Button(root, text=" " + tr("start"), command=self._start_sender).grid(row=5, column=0, pady=12, sticky="ew")
@@ -1004,9 +1055,13 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                    command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Spotlight",
                    command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Persoon 9 (reply)",
+                   command=lambda: self._calib_single_badge(8)).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
+        ttk.Button(calib, text=" Persoon 10 (reply)",
+                   command=lambda: self._calib_single_badge(9)).grid(row=6, column=0, padx=6, pady=(6,0), sticky="ew")
 
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_responder).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_responder).grid(row=7, column=0, padx=6, pady=(6,0), sticky="ew")
 
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
         opts.grid(row=2, column=0, sticky="ew", pady=8)
@@ -1204,7 +1259,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             pos = calibrate_position_snap(self, lbl)
             if not pos: return
             self.cfg[k] = pos; save_snap_config(self.cfg)
-        for i in range(8):
+        for i in range(PERSON_COUNT):
             pos = calibrate_position_snap(self, f"Persoon {i+1}")
             if not pos: break
             self.cfg["personen"][i] = pos; save_snap_config(self.cfg)
@@ -1221,15 +1276,25 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             toast(self, tr("saved"), f"{label_text} -> {pos}", timeout=2000)
 
     def _calib_people(self):
-        for i in range(8):
+        for i in range(PERSON_COUNT):
             pos = calibrate_position_snap(self, f"Persoon {i+1}")
             if not pos: break
             self.cfg["personen"][i] = pos; save_snap_config(self.cfg)
         toast(self, tr("saved"), "Personenposities opgeslagen", timeout=2000)
 
+    def _calib_single_person(self, idx):
+        label = f"Persoon {idx+1}"
+        pos = calibrate_position_snap(self, label)
+        if pos:
+            personen = _ensure_list_length(self.cfg.get("personen"), PERSON_COUNT)
+            personen[idx] = pos
+            self.cfg["personen"] = personen
+            save_snap_config(self.cfg)
+            toast(self, tr("saved"), f"{label} -> {pos}", timeout=2000)
+
     def _selected_sender_indices(self):
         indices = [i for i, var in enumerate(self.person_vars) if var.get()]
-        missing = [f"Persoon {i+1}" for i in indices if not self.cfg.get("personen", [None]*8)[i]]
+        missing = [f"Persoon {i+1}" for i in indices if not self.cfg.get("personen", [None]*PERSON_COUNT)[i]]
         if missing:
             messagebox.showerror(tr("error_calib"), "Kalibratie incompleet: " + ", ".join(missing))
             return []
@@ -1242,7 +1307,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             messagebox.showerror("Time", "Invalid time format. Use HH:MM"); return
         self.new_time_var.set(t)
         if t not in self.times:
-            self.times.append(t); self.time_people.setdefault(t, [False]*8)
+            self.times.append(t); self.time_people.setdefault(t, [False]*PERSON_COUNT)
             self._refresh_times()
             # persist
             self.cfg["times"] = self.times; self.cfg["time_people"] = self.time_people; save_snap_config(self.cfg)
@@ -1280,8 +1345,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _load_people_for_selected_time(self):
         sel = self._selected_time()
-        mask = self.time_people.get(sel, [False]*8)
-        for i in range(8): self.time_people_vars[i].set(bool(mask[i]))
+        mask = self.time_people.get(sel, [False]*PERSON_COUNT)
+        for i in range(PERSON_COUNT):
+            self.time_people_vars[i].set(bool(mask[i]))
 
     def _save_people_for_selected_time(self, sel=None):
         sel = sel or self._selected_time()
@@ -1294,7 +1360,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
     def _show_time_people(self):
         sel = self._selected_time()
         if not sel: return
-        mask = self.time_people.get(sel, [False]*8)
+        mask = self.time_people.get(sel, [False]*PERSON_COUNT)
         people = [f"P{i+1}" for i, on in enumerate(mask) if on]
         text = ", ".join(people) if people else "Geen"
         messagebox.showinfo(sel, text)
@@ -1360,9 +1426,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                     self.status_var.set(tr("waiting_until", time=when.strftime("%H:%M")))
                     wait_until(when, tick=self.update, cancel_evt=self.sender_cancel_evt)
                     if not self.sender_running.is_set() or self.sender_cancel_evt.is_set(): break
-                    mask = self.time_people.get(t_str, [False]*8)
+                    mask = self.time_people.get(t_str, [False]*PERSON_COUNT)
                     persons = [i for i, on in enumerate(mask) if on]
-                    missing = [f"Persoon {i+1}" for i in persons if not self.cfg.get("personen", [None]*8)[i]]
+                    missing = [f"Persoon {i+1}" for i in persons if not self.cfg.get("personen", [None]*PERSON_COUNT)[i]]
                     if missing:
                         messagebox.showerror(tr("error_calib"), "Kalibratie incompleet: " + ", ".join(missing))
                     else:
@@ -1404,16 +1470,26 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
     # ---------- Responder logic ----------
     def _calib_responder_badges(self):
         pts = []
-        for i in range(8):
+        for i in range(PERSON_COUNT):
             pos = calibrate_position_snap(self, f"Rood blokje {i+1}")
             if not pos:
                 break
             pts.append(list(pos))
-        while len(pts) < 8:
+        while len(pts) < PERSON_COUNT:
             pts.append(None)
         self.cfg["responder_badges"] = pts
         save_snap_config(self.cfg)
         toast(self, tr("saved"), "Rode blokjes opgeslagen", timeout=2000)
+
+    def _calib_single_badge(self, idx):
+        label = f"Rood blokje {idx+1}"
+        pos = calibrate_position_snap(self, label)
+        if pos:
+            badges = _ensure_list_length(self.cfg.get("responder_badges"), PERSON_COUNT)
+            badges[idx] = list(pos)
+            self.cfg["responder_badges"] = badges
+            save_snap_config(self.cfg)
+            toast(self, tr("saved"), f"{label} -> {pos}", timeout=2000)
 
     def _calib_scanner_color(self):
         pos = calibrate_position_snap(self, tr("color_scanner"))
@@ -1494,7 +1570,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 pyautogui.PAUSE = orig_pause
 
     def _responder_master_loop(self):
-        """Scan 1..8..1, per ronde max 1 reactie per persoon."""
+        """Scan 1..n..1, per ronde max 1 reactie per persoon."""
         reacted_count_since_restart = 0
         last_restart = time.time()
         restart_snaps = int(self.cfg.get("restart_after_snaps", 0))
@@ -1503,7 +1579,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         reacted_this_round = set()
         try:
             while self.responder_running.is_set():
-                badges = self.cfg.get("responder_badges", [None]*8)
+                badges = self.cfg.get("responder_badges", [None]*PERSON_COUNT)
                 if not badges: time.sleep(0.1); continue
 
                 if idx == 0:
@@ -1529,7 +1605,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                                 self._restart_via_buttons()
                                 time.sleep(0.1)
 
-                idx = (idx + 1) % 8
+                idx = (idx + 1) % PERSON_COUNT
                 time.sleep(0.1)
         finally:
             self.status_var.set(tr("status_done"))
@@ -1604,7 +1680,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self._enter_mini(stop_callback=self._stop_combi, banner_text=tr("mini_msg"))
 
         def run_initial_tasks():
-            persons = [i for i, p in enumerate(self.cfg.get("personen", [None]*8)) if p]
+            persons = [i for i, p in enumerate(self.cfg.get("personen", [None]*PERSON_COUNT)) if p]
             if self.combi_send_on_start.get() and persons:
                 self._run_sender_once(persons)
                 self._restart_via_buttons()
@@ -1631,7 +1707,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _combi_send_reply(self):
         """Stuur een reply naar het eerste gevonden rode blokje."""
-        badges = self.cfg.get("responder_badges", [None]*8)
+        badges = self.cfg.get("responder_badges", [None]*PERSON_COUNT)
         for entry in badges:
             if not entry:
                 continue
