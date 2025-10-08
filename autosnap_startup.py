@@ -72,6 +72,19 @@ load_snap_config = mm.load_snap_config
 AutoSnapWindow = mm.AutoSnapWindow
 MultiMouseApp = mm.MultiMouseApp
 tr = mm.tr
+PERSON_COUNT = getattr(mm, "PERSON_COUNT", 10)
+
+
+def _fallback_ensure(seq, length, fill_value=None):
+    arr = list(seq or [])
+    if len(arr) < length:
+        arr.extend([fill_value] * (length - len(arr)))
+    else:
+        arr = arr[:length]
+    return arr
+
+
+_ensure_list_length = getattr(mm, "_ensure_list_length", _fallback_ensure)
 
 pyautogui.FAILSAFE = False
 
@@ -126,7 +139,8 @@ def main():
         win.lift()
         win.focus_force()
 
-        persons = [i for i, p in enumerate(win.cfg.get("personen", [None]*8)) if p]
+        personen = _ensure_list_length(win.cfg.get("personen"), PERSON_COUNT)
+        persons = [i for i, p in enumerate(personen) if p]
         if persons:
             required = [
                 ("foto1", "Foto 1 (sender)"),
