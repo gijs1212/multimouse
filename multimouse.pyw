@@ -1472,13 +1472,13 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 pyautogui.click()
                 time.sleep(1)
                 pyautogui.click()
-                time.sleep(1)
 
                 foto_pos = self.cfg.get("foto_reply") or self.cfg.get("foto1")
                 if not foto_pos:
                     return False
                 fx, fy = foto_pos
                 pyautogui.moveTo(fx, fy, duration=move_dur)
+                time.sleep(3)
                 pyautogui.click()
                 time.sleep(1)
 
