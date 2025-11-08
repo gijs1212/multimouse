@@ -1472,6 +1472,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 pyautogui.click()
                 time.sleep(1)
                 pyautogui.click()
+                second_click_time = time.time()
                 time.sleep(1)
 
                 foto_pos = self.cfg.get("foto_reply") or self.cfg.get("foto1")
@@ -1486,6 +1487,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 if not s2:
                     return False
                 sx, sy = s2
+                elapsed = time.time() - second_click_time
+                if elapsed < 3:
+                    time.sleep(3 - elapsed)
                 pyautogui.moveTo(sx, sy, duration=move_dur)
                 pyautogui.click()
                 time.sleep(1)
