@@ -16,8 +16,13 @@ mm = _load_mm()
 
 def open_snapchat():
     cfg = mm.load_snap_config()
-    link = cfg.get("snapchat_shortcut") or (Path.home() / "Desktop" / "Snapchat.lnk")
-    link = Path(link)
+    custom_link = cfg.get("snapchat_shortcut")
+    username = Path.home().name
+    primary_link = Path.home() / "Desktop" / "Snapchat.lnk"
+    secondary_link = Path(f"C:/Users/{username}/OneDrive/Desktop/Snapchat.lnk")
+    link = Path(custom_link) if custom_link else primary_link
+    if not link.exists() and link == primary_link and secondary_link.exists():
+        link = secondary_link
     if not link.exists():
         print(f"Shortcut niet gevonden: {link}")
         return cfg
