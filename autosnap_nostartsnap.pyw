@@ -1,6 +1,7 @@
 import importlib.util, pathlib, sys, os, time
 from pathlib import Path
 
+
 def _load_mm():
     path = pathlib.Path(__file__).with_name("multimouse.pyw")
     spec = importlib.util.spec_from_file_location("_mm", path)
@@ -8,6 +9,7 @@ def _load_mm():
     sys.modules.setdefault("_mm", mm)
     spec.loader.exec_module(mm)  # type: ignore[attr-defined]
     return mm
+
 
 mm = _load_mm()
 
@@ -47,6 +49,9 @@ def main():
     win.deiconify()
     win.lift()
     win.focus_force()
+    win.mode_var.set("combi")
+    win._refresh_mode()
+    win.combi_send_on_start.set(False)
     win._start_combi()
     app.root.mainloop()
 
