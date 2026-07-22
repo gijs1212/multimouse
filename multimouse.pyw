@@ -538,7 +538,7 @@ def white_in_radius(x,y,radius=RADIUS_DEFAULT): return any_match_in_radius(x,y,_
 AUTOSNAP_CONFIG_FILE = AUTOSNAP_DIR / "autosnap_config.json"
 DEFAULT_SNAP_CONFIG = {
     # Sender
-    "foto1": None, "foto2": None, "verstuur_na_foto": None, "personen": [None]*8, "verzend": None,
+    "foto1": None, "foto2": None, "verstuur_na_foto": None, "personen": [None]*10, "verzend": None,
     # Story bewerker
     "story_foto1": None, "story_foto2": None, "story_send_to": None, "story_story": None, "story_verzend": None,
     "times": [],                     # ["08:00","21:30",...]
@@ -546,7 +546,8 @@ DEFAULT_SNAP_CONFIG = {
     # Responder/Combi
     "foto_reply": None,                   # Foto knop voor replies
     "verzend_reply": None,               # Verzendknop voor replies
-    "responder_badges": [None]*8,         # badge pos
+    "responder_badges": [None]*8,         # badge pos zonder verhaal
+    "responder_badges_story": [None]*8,   # badge pos met verhaal
     "restart_close_app": None,            # App X (rechtsboven)
     "restart_searchbar": None,            # Zoekbalk
     "close_spotlight": None,              # Spotlight sluiten
@@ -561,6 +562,13 @@ DEFAULT_SNAP_CONFIG = {
     "action_delay": 0.5,
     "auto_load_settings": False,
     "auto_settings_file": None,
+    "combi_extra_people": [False, False],
+    "combi_extra_people_modes": ["normal", "normal"],
+    "combi_extra_people_names": ["", ""],
+    "combi_extra_people_scroll_points": [None, None],
+    "combi_extra_people_scroll_amounts": [-5, -5],
+    "snap_people_searchbar": None,
+    "combi_open_pending_after_send": False,
 }
 
 def load_snap_config():
@@ -700,6 +708,20 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.story_running = threading.Event()
         self.combi_send_on_start = tk.BooleanVar(value=bool(self.cfg.get("send_snap_on_start")))
         self.combi_send_on_start.trace_add("write", lambda *_: self._save_combi_send_on_start())
+        self.combi_open_pending_after_send = tk.BooleanVar(
+            value=bool(self.cfg.get("combi_open_pending_after_send"))
+        )
+        self.combi_open_pending_after_send.trace_add("write", lambda *_: self._save_combi_open_pending_after_send())
+        extra_people = self.cfg.get("combi_extra_people", [False, False])
+        self.combi_extra_person_vars = [tk.BooleanVar(value=bool(extra_people[i]) if i < len(extra_people) else False) for i in range(2)]
+        extra_modes = self.cfg.get("combi_extra_people_modes", ["normal", "normal"])
+        self.combi_extra_person_mode_vars = [tk.StringVar(value=extra_modes[i] if i < len(extra_modes) else "normal") for i in range(2)]
+        extra_names = self.cfg.get("combi_extra_people_names", ["", ""])
+        self.combi_extra_person_name_vars = [tk.StringVar(value=extra_names[i] if i < len(extra_names) else "") for i in range(2)]
+        extra_scrolls = self.cfg.get("combi_extra_people_scroll_amounts", [-5, -5])
+        self.combi_extra_person_scroll_vars = [tk.IntVar(value=int(extra_scrolls[i]) if i < len(extra_scrolls) else -5) for i in range(2)]
+        for var in self.combi_extra_person_vars + self.combi_extra_person_mode_vars + self.combi_extra_person_name_vars + self.combi_extra_person_scroll_vars:
+            var.trace_add("write", lambda *_: self._save_combi_extra_people())
         self.start_delay = tk.BooleanVar(value=bool(self.cfg.get("startup_delay")))
         self.start_delay.trace_add("write", lambda *_: self._save_startup_delay())
         self.hourly_restart = tk.BooleanVar(value=False)  # kan aan/uit
@@ -729,7 +751,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         for key, label in items:
             val = self.cfg.get(key)
             if key == "responder_badges":
-                if not any(v for v in (val or [])):
+                plain = self.cfg.get("responder_badges", [None]*8)
+                story = self.cfg.get("responder_badges_story", [None]*8)
+                if not any(v for v in (plain or [])) and not any(v for v in (story or [])):
                     missing.append(label)
             elif not val:
                 missing.append(label)
@@ -771,7 +795,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self._build_story(self.story_frame)
 
         btn_row = ttk.Frame(wrap)
-        btn_row.grid(row=2, column=0, sticky="e", pady=(0,5))
+        btn_row.grid(row=13, column=0, sticky="e", pady=(0,5))
         ttk.Button(btn_row, text=tr("load_settings"), command=self._load_settings).pack(side="left", padx=(0,6))
         ttk.Button(btn_row, text=tr("save_settings"), command=self.save_combined).pack(side="left")
         self.status_lbl = ttk.Label(wrap, textvariable=self.status_var, font=("Segoe UI", 10, "italic"))
@@ -788,6 +812,16 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.autoload_file_var.set(self.cfg.get("auto_settings_file", ""))
         self.snap_shortcut_var.set(self.cfg.get("snapchat_shortcut", ""))
         self.combi_send_on_start.set(bool(self.cfg.get("send_snap_on_start")))
+        self.combi_open_pending_after_send.set(bool(self.cfg.get("combi_open_pending_after_send")))
+        extra_people = self.cfg.get("combi_extra_people", [False, False])
+        extra_modes = self.cfg.get("combi_extra_people_modes", ["normal", "normal"])
+        extra_names = self.cfg.get("combi_extra_people_names", ["", ""])
+        extra_scrolls = self.cfg.get("combi_extra_people_scroll_amounts", [-5, -5])
+        for i, var in enumerate(self.combi_extra_person_vars):
+            var.set(bool(extra_people[i]) if i < len(extra_people) else False)
+            self.combi_extra_person_mode_vars[i].set(extra_modes[i] if i < len(extra_modes) else "normal")
+            self.combi_extra_person_name_vars[i].set(extra_names[i] if i < len(extra_names) else "")
+            self.combi_extra_person_scroll_vars[i].set(int(extra_scrolls[i]) if i < len(extra_scrolls) else -5)
         self.start_delay.set(bool(self.cfg.get("startup_delay")))
         self.times = self.cfg.get("times", []).copy()
         self.time_people = self.cfg.get("time_people", {}).copy()
@@ -825,8 +859,28 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.cfg["send_snap_on_start"] = bool(self.combi_send_on_start.get())
         save_snap_config(self.cfg)
 
+    def _save_combi_open_pending_after_send(self):
+        self.cfg["combi_open_pending_after_send"] = bool(self.combi_open_pending_after_send.get())
+        save_snap_config(self.cfg)
+
     def _save_startup_delay(self):
         self.cfg["startup_delay"] = bool(self.start_delay.get())
+        save_snap_config(self.cfg)
+
+    def _combi_extra_scroll_amounts(self):
+        amounts = []
+        for var in self.combi_extra_person_scroll_vars:
+            try:
+                amounts.append(int(var.get()))
+            except Exception:
+                amounts.append(-5)
+        return amounts
+
+    def _save_combi_extra_people(self):
+        self.cfg["combi_extra_people"] = [bool(var.get()) for var in self.combi_extra_person_vars]
+        self.cfg["combi_extra_people_modes"] = [var.get() for var in self.combi_extra_person_mode_vars]
+        self.cfg["combi_extra_people_names"] = [var.get() for var in self.combi_extra_person_name_vars]
+        self.cfg["combi_extra_people_scroll_amounts"] = self._combi_extra_scroll_amounts()
         save_snap_config(self.cfg)
 
     def _choose_snap_shortcut(self):
@@ -994,19 +1048,21 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="nsew", pady=8); calib.columnconfigure(0, weight=1)
 
-        ttk.Button(calib, text=" " + tr("badge_points"),
+        ttk.Button(calib, text=" Rode blokjes (zonder verhaal)",
                    command=self._calib_responder_badges).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Rode blokjes (met verhaal)",
+                   command=self._calib_responder_badges_story).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Foto (reply)",
-                   command=lambda: self._calib_key("foto_reply", "Foto (reply)")).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("foto_reply", "Foto (reply)")).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("send_reply"),
-                   command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("searchbar"),
-                   command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("restart_searchbar", tr("searchbar"))).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Spotlight",
-                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=5, column=0, padx=6, pady=6, sticky="ew")
 
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_responder).grid(row=5, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_responder).grid(row=6, column=0, padx=6, pady=(6,0), sticky="ew")
 
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
         opts.grid(row=2, column=0, sticky="ew", pady=8)
@@ -1029,31 +1085,35 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         calib = ttk.LabelFrame(root, text=tr("recalibrate"), padding=12)
         calib.grid(row=1, column=0, sticky="nsew", pady=8)
 
-        ttk.Button(calib, text=" " + tr("badge_points"),
+        ttk.Button(calib, text=" Rode blokjes (zonder verhaal)",
                    command=self._calib_responder_badges).grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Rode blokjes (met verhaal)",
+                   command=self._calib_responder_badges_story).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Foto 1 (sender)",
-                   command=lambda: self._calib_key("foto1", "Foto 1 (sender)")).grid(row=1, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("foto1", "Foto 1 (sender)")).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Foto 2 (sender)",
-                   command=lambda: self._calib_key("foto2", "Foto 2 (sender)")).grid(row=2, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("foto2", "Foto 2 (sender)")).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Foto (reply)",
-                   command=lambda: self._calib_key("foto_reply", "Foto (reply)")).grid(row=3, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("foto_reply", "Foto (reply)")).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("send_to"),
-                   command=lambda: self._calib_key("verstuur_na_foto", tr("send_to"))).grid(row=4, column=0, padx=6, pady=6, sticky="ew")
-        ttk.Button(calib, text=" Personen", command=self._calib_people).grid(row=5, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("verstuur_na_foto", tr("send_to"))).grid(row=5, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Personen", command=self._calib_people).grid(row=6, column=0, padx=6, pady=6, sticky="ew")
+        ttk.Button(calib, text=" Persoon 9/10 opties en kalibratie",
+                   command=self._open_combi_extra_people_dialog).grid(row=7, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("send"),
-                   command=lambda: self._calib_key("verzend", tr("send"))).grid(row=6, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("verzend", tr("send"))).grid(row=8, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("send_reply"),
-                   command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=7, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("verzend_reply", tr("send_reply"))).grid(row=9, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("color_scanner"),
-                   command=self._calib_scanner_color).grid(row=8, column=0, padx=6, pady=6, sticky="ew")
+                   command=self._calib_scanner_color).grid(row=10, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("restart_close"),
-                   command=lambda: self._calib_key("restart_close_app", tr("restart_close"))).grid(row=9, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("restart_close_app", tr("restart_close"))).grid(row=11, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("restart_search"),
-                   command=lambda: self._calib_key("restart_searchbar", tr("restart_search"))).grid(row=10, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("restart_searchbar", tr("restart_search"))).grid(row=12, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" Spotlight",
-                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=11, column=0, padx=6, pady=6, sticky="ew")
+                   command=lambda: self._calib_key("close_spotlight", "Spotlight")).grid(row=13, column=0, padx=6, pady=6, sticky="ew")
         ttk.Button(calib, text=" " + tr("full_calibration"),
-                   command=self._full_calibration_combi).grid(row=12, column=0, padx=6, pady=(6,0), sticky="ew")
+                   command=self._full_calibration_combi).grid(row=14, column=0, padx=6, pady=(6,0), sticky="ew")
 
         # Opties
         opts = ttk.LabelFrame(root, text=tr("settings"), padding=12)
@@ -1064,9 +1124,13 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ttk.Label(opts, text=tr("restart_after_minutes")).grid(row=1, column=0, sticky="w")
         ttk.Entry(opts, textvariable=self.restart_after_minutes).grid(row=1, column=1, sticky="ew")
         ttk.Checkbutton(opts, text=tr("send_snap_on_start"), variable=self.combi_send_on_start).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(opts, text=tr("startup_delay"), variable=self.start_delay).grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=4, column=0, columnspan=2, sticky="w")
-
+        ttk.Checkbutton(
+            opts,
+            text="Open openstaande snaps na verzenden (eenmalig, zonder antwoorden)",
+            variable=self.combi_open_pending_after_send,
+        ).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("startup_delay"), variable=self.start_delay).grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(opts, text=tr("use_color_scanner"), variable=self.use_color_scanner).grid(row=5, column=0, columnspan=2, sticky="w")
         # Start/stop
         btns = ttk.Frame(root); btns.grid(row=3, column=0, sticky="ew", pady=10)
         ttk.Button(btns, text=" " + tr("start_combi"), command=self._start_combi).grid(row=0, column=0, padx=6, sticky="w")
@@ -1204,10 +1268,11 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             pos = calibrate_position_snap(self, lbl)
             if not pos: return
             self.cfg[k] = pos; save_snap_config(self.cfg)
+        people = self._people_positions()
         for i in range(8):
             pos = calibrate_position_snap(self, f"Persoon {i+1}")
             if not pos: break
-            self.cfg["personen"][i] = pos; save_snap_config(self.cfg)
+            people[i] = pos; save_snap_config(self.cfg)
         pos = calibrate_position_snap(self, tr("send"))
         if pos:
             self.cfg["verzend"] = pos; save_snap_config(self.cfg)
@@ -1220,16 +1285,177 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             save_snap_config(self.cfg)
             toast(self, tr("saved"), f"{label_text} -> {pos}", timeout=2000)
 
+    def _people_positions(self):
+        people = list(self.cfg.get("personen", []))
+        while len(people) < 10:
+            people.append(None)
+        self.cfg["personen"] = people
+        return people
+
     def _calib_people(self):
+        people = self._people_positions()
         for i in range(8):
             pos = calibrate_position_snap(self, f"Persoon {i+1}")
             if not pos: break
-            self.cfg["personen"][i] = pos; save_snap_config(self.cfg)
+            people[i] = pos; save_snap_config(self.cfg)
         toast(self, tr("saved"), "Personenposities opgeslagen", timeout=2000)
+
+    def _calib_combi_extra_people(self):
+        people = self._people_positions()
+        for i in range(8, 10):
+            pos = calibrate_position_snap(self, f"Persoon {i+1} (optioneel combi)")
+            if not pos: break
+            people[i] = pos; save_snap_config(self.cfg)
+        toast(self, tr("saved"), "Optionele combi-personen 9/10 opgeslagen", timeout=2000)
+
+    def _calib_combi_extra_scroll_points(self):
+        points = list(self.cfg.get("combi_extra_people_scroll_points", [None, None]))
+        while len(points) < 2:
+            points.append(None)
+        for i in range(2):
+            pos = calibrate_position_snap(self, f"Scrollpunt persoon {i+9}")
+            if not pos: break
+            points[i] = list(pos); self.cfg["combi_extra_people_scroll_points"] = points; save_snap_config(self.cfg)
+        toast(self, tr("saved"), "Scrollpunten persoon 9/10 opgeslagen", timeout=2000)
+
+    def _calib_combi_extra_person(self, idx):
+        people = self._people_positions()
+        pos = calibrate_position_snap(self, f"Persoon {idx+1} (optioneel combi)")
+        if pos:
+            people[idx] = pos
+            save_snap_config(self.cfg)
+            toast(self, tr("saved"), f"Persoon {idx+1} opgeslagen", timeout=2000)
+
+    def _calib_combi_extra_scroll_point(self, extra_idx):
+        points = list(self.cfg.get("combi_extra_people_scroll_points", [None, None]))
+        while len(points) < 2:
+            points.append(None)
+        pos = calibrate_position_snap(self, f"Scrollpunt persoon {extra_idx+9}")
+        if pos:
+            points[extra_idx] = list(pos)
+            self.cfg["combi_extra_people_scroll_points"] = points
+            save_snap_config(self.cfg)
+            toast(self, tr("saved"), f"Scrollpunt persoon {extra_idx+9} opgeslagen", timeout=2000)
+
+    def _show_combi_extra_scroll_point(self, extra_idx):
+        points = list(self.cfg.get("combi_extra_people_scroll_points", [None, None]))
+        if extra_idx >= len(points) or not points[extra_idx]:
+            messagebox.showerror(tr("error_calib"), f"Scrollpunt persoon {extra_idx+9} is nog niet gekalibreerd")
+            return
+        amounts = self._combi_extra_scroll_amounts()
+        x, y = points[extra_idx]
+        amount = amounts[extra_idx]
+        pyautogui.moveTo(x, y, duration=max(0.2, self.action_delay_var.get()))
+        pyautogui.scroll(amount)
+        toast(self, "Scrollpunt", f"Muis stond op scrollpunt persoon {extra_idx+9} en scrolde {amount}: {(x, y)}", timeout=2500)
+
+    def _open_combi_extra_people_dialog(self):
+        top = ctk.CTkToplevel(self)
+        top.title("Persoon 9/10 opties")
+        set_window_icon(top, APP_ICON_SNAP)
+        top.attributes("-topmost", True)
+        top.geometry("920x620")
+        top.resizable(True, True)
+
+        wrap = ttk.Frame(top, padding=14)
+        wrap.pack(fill="both", expand=True)
+        wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(1, weight=1)
+        ttk.Label(
+            wrap,
+            text="Kies per persoon de versie en kalibreer alleen wat daarvoor nodig is.",
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        people = self._people_positions()
+        scroll_points = list(self.cfg.get("combi_extra_people_scroll_points", [None, None]))
+        while len(scroll_points) < 2:
+            scroll_points.append(None)
+        status_vars = {}
+
+        def pos_text(pos):
+            return "OK" if pos else "Niet gekalibreerd"
+
+        def refresh_status():
+            people_now = self._people_positions()
+            points_now = list(self.cfg.get("combi_extra_people_scroll_points", [None, None]))
+            while len(points_now) < 2:
+                points_now.append(None)
+            searchbar = self.cfg.get("snap_people_searchbar")
+            for extra_idx in range(2):
+                person_no = extra_idx + 9
+                status_vars[(extra_idx, "person")].set(f"Persoon {person_no}: {pos_text(people_now[extra_idx + 8])}")
+                status_vars[(extra_idx, "search")].set(f"Zoekbalk: {pos_text(searchbar)} | Naam: {'OK' if self.combi_extra_person_name_vars[extra_idx].get().strip() else 'Leeg'}")
+                status_vars[(extra_idx, "scroll")].set(f"Scrollpunt: {pos_text(points_now[extra_idx])} | Scroll: {self.combi_extra_person_scroll_vars[extra_idx].get()}")
+
+        def calibrate_person(extra_idx):
+            self._calib_combi_extra_person(extra_idx + 8)
+            refresh_status()
+
+        def calibrate_searchbar():
+            self._calib_key("snap_people_searchbar", "Snap zoekbalk personen")
+            refresh_status()
+
+        def calibrate_scroll(extra_idx):
+            self._calib_combi_extra_scroll_point(extra_idx)
+            refresh_status()
+
+        people_frame = ttk.Frame(wrap)
+        people_frame.grid(row=1, column=0, sticky="nsew")
+        people_frame.columnconfigure(0, weight=1)
+        people_frame.columnconfigure(1, weight=1)
+
+        for extra_idx in range(2):
+            person_no = extra_idx + 9
+            person_box = ttk.LabelFrame(people_frame, text=f"Persoon {person_no}", padding=10)
+            person_box.grid(row=0, column=extra_idx, sticky="nsew", padx=6)
+            person_box.columnconfigure(0, weight=1)
+
+            top_row = ttk.Frame(person_box)
+            top_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+            ttk.Checkbutton(top_row, text=f"Persoon {person_no} meesturen", variable=self.combi_extra_person_vars[extra_idx]).grid(row=0, column=0, sticky="w")
+            ttk.Radiobutton(top_row, text="Normaal", variable=self.combi_extra_person_mode_vars[extra_idx], value="normal").grid(row=0, column=1, padx=6)
+            ttk.Radiobutton(top_row, text="Zoeken", variable=self.combi_extra_person_mode_vars[extra_idx], value="search").grid(row=0, column=2, padx=6)
+            ttk.Radiobutton(top_row, text="Scroll", variable=self.combi_extra_person_mode_vars[extra_idx], value="scroll").grid(row=0, column=3, padx=6)
+
+            normal = ttk.LabelFrame(person_box, text="1. Normaal klikken", padding=8)
+            normal.grid(row=1, column=0, sticky="ew", pady=5)
+            normal.columnconfigure(1, weight=1)
+            ttk.Button(normal, text=f"Kalibreer persoon {person_no}", command=lambda i=extra_idx: calibrate_person(i)).grid(row=0, column=0, padx=4, sticky="w")
+            status_vars[(extra_idx, "person")] = tk.StringVar()
+            ttk.Label(normal, textvariable=status_vars[(extra_idx, "person")]).grid(row=0, column=1, sticky="w")
+
+            search = ttk.LabelFrame(person_box, text="2. Zoeken op naam", padding=8)
+            search.grid(row=2, column=0, sticky="ew", pady=5)
+            search.columnconfigure(3, weight=1)
+            ttk.Button(search, text="Kalibreer Snap zoekbalk", command=calibrate_searchbar).grid(row=0, column=0, padx=4, sticky="w")
+            ttk.Label(search, text="Naam").grid(row=0, column=1, padx=(8, 2), sticky="w")
+            ttk.Entry(search, textvariable=self.combi_extra_person_name_vars[extra_idx], width=18).grid(row=0, column=2, sticky="ew")
+            status_vars[(extra_idx, "search")] = tk.StringVar()
+            ttk.Label(search, textvariable=status_vars[(extra_idx, "search")]).grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+            scroll = ttk.LabelFrame(person_box, text="3. Scrollen naar persoon", padding=8)
+            scroll.grid(row=3, column=0, sticky="ew", pady=5)
+            scroll.columnconfigure(3, weight=1)
+            ttk.Button(scroll, text=f"Kalibreer scrollpunt {person_no}", command=lambda i=extra_idx: calibrate_scroll(i)).grid(row=0, column=0, padx=4, sticky="w")
+            ttk.Button(scroll, text="Toon scrollpunt", command=lambda i=extra_idx: self._show_combi_extra_scroll_point(i)).grid(row=0, column=1, padx=4, sticky="w")
+            ttk.Label(scroll, text="Scroll").grid(row=0, column=2, padx=(8, 2), sticky="w")
+            ttk.Entry(scroll, textvariable=self.combi_extra_person_scroll_vars[extra_idx], width=6).grid(row=0, column=3, sticky="w")
+            status_vars[(extra_idx, "scroll")] = tk.StringVar()
+            ttk.Label(scroll, textvariable=status_vars[(extra_idx, "scroll")]).grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+        btns = ttk.Frame(wrap)
+        btns.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        ttk.Button(btns, text="Opslaan", command=lambda: (self._save_combi_extra_people(), refresh_status())).pack(side="left", padx=4)
+        ttk.Button(btns, text="Sluiten", command=top.destroy).pack(side="right", padx=4)
+        refresh_status()
+        top.lift()
+        top.focus_force()
 
     def _selected_sender_indices(self):
         indices = [i for i, var in enumerate(self.person_vars) if var.get()]
-        missing = [f"Persoon {i+1}" for i in indices if not self.cfg.get("personen", [None]*8)[i]]
+        people = self._people_positions()
+        missing = [f"Persoon {i+1}" for i in indices if not people[i]]
         if missing:
             messagebox.showerror(tr("error_calib"), "Kalibratie incompleet: " + ", ".join(missing))
             return []
@@ -1299,17 +1525,41 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         text = ", ".join(people) if people else "Geen"
         messagebox.showinfo(sel, text)
 
-    def _run_sender_once(self, persons):
+    def _run_sender_once(self, persons, use_combi_extra_search=False):
         self.status_var.set(tr("status_busy"))
         try:
             with self.ui_lock:
                 self.move_then_click(self.cfg["foto1"])
                 self.move_then_click(self.cfg["foto2"])
                 self.move_then_click(self.cfg["verstuur_na_foto"])
+                people = self._people_positions()
+                search_text = ""
+                extra_modes = self.cfg.get("combi_extra_people_modes", ["normal", "normal"])
+                extra_names = self.cfg.get("combi_extra_people_names", ["", ""])
+                extra_scroll_points = self.cfg.get("combi_extra_people_scroll_points", [None, None])
+                extra_scroll_amounts = self.cfg.get("combi_extra_people_scroll_amounts", [-5, -5])
+                searchbar = self.cfg.get("snap_people_searchbar")
                 for idx in persons:
-                    p = self.cfg["personen"][idx]
-                    if p:
-                        self.move_then_click(p)
+                    p = people[idx]
+                    if not p:
+                        continue
+                    if use_combi_extra_search and idx >= 8 and idx < 10:
+                        extra_idx = idx - 8
+                        mode = extra_modes[extra_idx]
+                        if mode == "search":
+                            self.move_then_click(searchbar)
+                            if search_text:
+                                pyautogui.press("backspace", presses=len(search_text), interval=0.01)
+                            search_text = extra_names[extra_idx]
+                            if search_text:
+                                pyautogui.typewrite(search_text, interval=0.01)
+                                time.sleep(self.action_delay_var.get())
+                        elif mode == "scroll":
+                            sx, sy = extra_scroll_points[extra_idx]
+                            pyautogui.moveTo(sx, sy, duration=max(0.2, self.action_delay_var.get()))
+                            pyautogui.scroll(int(extra_scroll_amounts[extra_idx]))
+                            time.sleep(self.action_delay_var.get())
+                    self.move_then_click(p)
                 self.move_then_click(self.cfg["verzend"])
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -1362,7 +1612,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                     if not self.sender_running.is_set() or self.sender_cancel_evt.is_set(): break
                     mask = self.time_people.get(t_str, [False]*8)
                     persons = [i for i, on in enumerate(mask) if on]
-                    missing = [f"Persoon {i+1}" for i in persons if not self.cfg.get("personen", [None]*8)[i]]
+                    people = self._people_positions()
+                    missing = [f"Persoon {i+1}" for i in persons if not people[i]]
                     if missing:
                         messagebox.showerror(tr("error_calib"), "Kalibratie incompleet: " + ", ".join(missing))
                     else:
@@ -1402,18 +1653,40 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.status_var.set(tr("status_stopped"))
 
     # ---------- Responder logic ----------
-    def _calib_responder_badges(self):
+    def _capture_badge_series(self, series_name):
         pts = []
         for i in range(8):
-            pos = calibrate_position_snap(self, f"Rood blokje {i+1}")
+            pos = calibrate_position_snap(self, f"Rood blokje {i+1} ({series_name})")
             if not pos:
                 break
             pts.append(list(pos))
         while len(pts) < 8:
             pts.append(None)
-        self.cfg["responder_badges"] = pts
+        return pts
+
+    def _calib_responder_badges(self):
+        self.cfg["responder_badges"] = self._capture_badge_series("zonder verhaal")
         save_snap_config(self.cfg)
-        toast(self, tr("saved"), "Rode blokjes opgeslagen", timeout=2000)
+        toast(self, tr("saved"), "Rode blokjes zonder verhaal opgeslagen", timeout=2500)
+
+    def _calib_responder_badges_story(self):
+        self.cfg["responder_badges_story"] = self._capture_badge_series("met verhaal")
+        save_snap_config(self.cfg)
+        toast(self, tr("saved"), "Rode blokjes met verhaal opgeslagen", timeout=2500)
+
+    def _all_responder_badges(self):
+        merged = []
+        seen = set()
+        for key in ("responder_badges", "responder_badges_story"):
+            for entry in self.cfg.get(key, [None]*8):
+                if not entry:
+                    continue
+                xy = tuple(entry)
+                if xy in seen:
+                    continue
+                seen.add(xy)
+                merged.append(xy)
+        return merged
 
     def _calib_scanner_color(self):
         pos = calibrate_position_snap(self, tr("color_scanner"))
@@ -1430,6 +1703,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _full_calibration_responder(self):
         self._calib_responder_badges()
+        self._calib_responder_badges_story()
         self._calib_key("foto_reply", "Foto (reply)")
         self._calib_key("verzend_reply", tr("send_reply"))
         self._calib_key("restart_searchbar", tr("searchbar"))
@@ -1472,13 +1746,13 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
                 pyautogui.click()
                 time.sleep(1)
                 pyautogui.click()
-                time.sleep(1)
 
                 foto_pos = self.cfg.get("foto_reply") or self.cfg.get("foto1")
                 if not foto_pos:
                     return False
                 fx, fy = foto_pos
                 pyautogui.moveTo(fx, fy, duration=move_dur)
+                time.sleep(1)
                 pyautogui.click()
                 time.sleep(1)
 
@@ -1493,8 +1767,36 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
             finally:
                 pyautogui.PAUSE = orig_pause
 
+    def _open_pending_snaps_once(self):
+        """Open elk gevonden rood blokje zonder een foto of reply te versturen."""
+        opened = 0
+        with self.ui_lock:
+            move_dur = max(0.2, self.action_delay_var.get())
+            orig_pause = pyautogui.PAUSE
+            pyautogui.PAUSE = 0
+            try:
+                for x, y in self._all_responder_badges():
+                    if self.cfg.get("use_color_scanner") and self.cfg.get("scanner_color"):
+                        matches = color_in_radius(
+                            x, y, tuple(self.cfg["scanner_color"]), RADIUS_DEFAULT
+                        )
+                    else:
+                        matches = red_in_radius(x, y, RADIUS_DEFAULT)
+                    if not matches:
+                        continue
+
+                    pyautogui.moveTo(x, y, duration=move_dur)
+                    pyautogui.click()
+                    time.sleep(1)
+                    pyautogui.click()
+                    time.sleep(1)
+                    opened += 1
+            finally:
+                pyautogui.PAUSE = orig_pause
+        return opened
+
     def _responder_master_loop(self):
-        """Scan 1..8..1, per ronde max 1 reactie per persoon."""
+        """Scan alle badge-posities (zonder + met verhaal), per ronde max 1 reactie per positie."""
         reacted_count_since_restart = 0
         last_restart = time.time()
         restart_snaps = int(self.cfg.get("restart_after_snaps", 0))
@@ -1503,33 +1805,36 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         reacted_this_round = set()
         try:
             while self.responder_running.is_set():
-                badges = self.cfg.get("responder_badges", [None]*8)
-                if not badges: time.sleep(0.1); continue
+                badges = self._all_responder_badges()
+                total = len(badges)
+                if total == 0:
+                    time.sleep(0.1)
+                    continue
 
+                if idx >= total:
+                    idx = 0
                 if idx == 0:
                     reacted_this_round.clear()
 
-                entry = badges[idx]
-                if entry:
-                    x, y = entry
-                    match = False
-                    if self.cfg.get("use_color_scanner") and self.cfg.get("scanner_color"):
-                        match = color_in_radius(x, y, tuple(self.cfg.get("scanner_color")), RADIUS_DEFAULT)
-                    else:
-                        match = red_in_radius(x, y, RADIUS_DEFAULT)
-                    if match and (idx not in reacted_this_round):
-                        ok = self._respond_sequence((x, y))
-                        if ok:
-                            reacted_this_round.add(idx)
-                            reacted_count_since_restart += 1
-                            if ((restart_snaps and reacted_count_since_restart >= restart_snaps) or
-                                (restart_minutes and (time.time() - last_restart) >= restart_minutes*60)):
-                                reacted_count_since_restart = 0
-                                last_restart = time.time()
-                                self._restart_via_buttons()
-                                time.sleep(0.1)
+                x, y = badges[idx]
+                if self.cfg.get("use_color_scanner") and self.cfg.get("scanner_color"):
+                    match = color_in_radius(x, y, tuple(self.cfg.get("scanner_color")), RADIUS_DEFAULT)
+                else:
+                    match = red_in_radius(x, y, RADIUS_DEFAULT)
 
-                idx = (idx + 1) % 8
+                if match and (idx not in reacted_this_round):
+                    ok = self._respond_sequence((x, y))
+                    if ok:
+                        reacted_this_round.add(idx)
+                        reacted_count_since_restart += 1
+                        if ((restart_snaps and reacted_count_since_restart >= restart_snaps) or
+                            (restart_minutes and (time.time() - last_restart) >= restart_minutes * 60)):
+                            reacted_count_since_restart = 0
+                            last_restart = time.time()
+                            self._restart_via_buttons()
+                            time.sleep(0.1)
+
+                idx = (idx + 1) % total
                 time.sleep(0.1)
         finally:
             self.status_var.set(tr("status_done"))
@@ -1557,6 +1862,7 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
     def _full_calibration_combi(self):
         # volgorde: rode blokjes, foto's, versturen1, versturen2, app-sluiten, zoekbalk, spotlight
         self._calib_responder_badges()
+        self._calib_responder_badges_story()
         for key, label in [
             ("foto1", "Foto 1 (sender)"),
             ("foto2", "Foto 2 (sender)"),
@@ -1565,6 +1871,9 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         ]:
             self._calib_key(key, label)
         self._calib_people()
+        self._calib_combi_extra_people()
+        self._calib_key("snap_people_searchbar", "Snap zoekbalk personen")
+        self._calib_combi_extra_scroll_points()
         for key, label in [
             ("verzend", tr("send")),
             ("verzend_reply", tr("send_reply")),
@@ -1596,6 +1905,38 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self.cfg["restart_after_snaps"] = int(self.restart_after_snaps.get())
         self.cfg["restart_after_minutes"] = int(self.restart_after_minutes.get())
         self.cfg["use_color_scanner"] = bool(self.use_color_scanner.get())
+        self.cfg["combi_extra_people"] = [bool(var.get()) for var in self.combi_extra_person_vars]
+        self.cfg["combi_extra_people_modes"] = [var.get() for var in self.combi_extra_person_mode_vars]
+        self.cfg["combi_extra_people_names"] = [var.get() for var in self.combi_extra_person_name_vars]
+        self.cfg["combi_extra_people_scroll_amounts"] = self._combi_extra_scroll_amounts()
+        self.cfg["combi_open_pending_after_send"] = bool(self.combi_open_pending_after_send.get())
+        if self.combi_send_on_start.get():
+            people = self._people_positions()
+            missing_extra = [f"Persoon {i+9}" for i, enabled in enumerate(self.cfg["combi_extra_people"]) if enabled and not people[i+8]]
+            search_missing = []
+            scroll_missing = []
+            scroll_points = self.cfg.get("combi_extra_people_scroll_points", [None, None])
+            for i, enabled in enumerate(self.cfg["combi_extra_people"]):
+                if not enabled:
+                    continue
+                mode = self.cfg["combi_extra_people_modes"][i]
+                if mode == "search":
+                    if not self.cfg.get("snap_people_searchbar"):
+                        search_missing.append("Snap zoekbalk personen")
+                    if not self.cfg["combi_extra_people_names"][i].strip():
+                        search_missing.append(f"Naam persoon {i+9}")
+                elif mode == "scroll":
+                    if i >= len(scroll_points) or not scroll_points[i]:
+                        scroll_missing.append(f"Scrollpunt persoon {i+9}")
+            missing = missing_extra + search_missing + scroll_missing
+            if missing:
+                messagebox.showerror(tr("error_calib"), "Kalibratie incompleet: " + ", ".join(dict.fromkeys(missing)))
+                return
+            if self.combi_open_pending_after_send.get() and not self._ensure_calibrated([
+                ("restart_close_app", tr("restart_close")),
+                ("restart_searchbar", tr("restart_search")),
+            ]):
+                return
         save_snap_config(self.cfg)
 
         self.combi_running.set()
@@ -1604,10 +1945,17 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
         self._enter_mini(stop_callback=self._stop_combi, banner_text=tr("mini_msg"))
 
         def run_initial_tasks():
-            persons = [i for i, p in enumerate(self.cfg.get("personen", [None]*8)) if p]
+            people = self._people_positions()
+            persons = [i for i, p in enumerate(people[:8]) if p]
+            extra_enabled = self.cfg.get("combi_extra_people", [False, False])
+            persons.extend(i + 8 for i, enabled in enumerate(extra_enabled[:2]) if enabled and people[i + 8])
             if self.combi_send_on_start.get() and persons:
-                self._run_sender_once(persons)
+                self._run_sender_once(persons, use_combi_extra_search=True)
                 self._restart_via_buttons()
+                if self.combi_open_pending_after_send.get():
+                    opened = self._open_pending_snaps_once()
+                    self.status_var.set(f"{opened} openstaande snaps geopend")
+                    self._restart_via_buttons()
             if not self.responder_running.is_set():
                 self.responder_running.set()
                 threading.Thread(target=self._responder_master_loop, daemon=True).start()
@@ -1631,11 +1979,8 @@ class AutoSnapWindow(ctk.CTkToplevel, MiniMixin):
 
     def _combi_send_reply(self):
         """Stuur een reply naar het eerste gevonden rode blokje."""
-        badges = self.cfg.get("responder_badges", [None]*8)
-        for entry in badges:
-            if not entry:
-                continue
-            x, y = entry
+        badges = self._all_responder_badges()
+        for x, y in badges:
             if self.cfg.get("use_color_scanner") and self.cfg.get("scanner_color"):
                 color = self.cfg.get("scanner_color")
                 if color_in_radius(x, y, tuple(color), RADIUS_DEFAULT):
