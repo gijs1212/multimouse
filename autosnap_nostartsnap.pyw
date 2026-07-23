@@ -16,6 +16,8 @@ mm = _load_mm()
 
 def open_snapchat():
     cfg = mm.load_snap_config()
+    if cfg.get("startup_delay"):
+        time.sleep(mm.snap_delay(cfg, "startup_before_launch"))
     custom_link = cfg.get("snapchat_shortcut")
     username = Path.home().name
     primary_link = Path.home() / "Desktop" / "Snapchat.lnk"
@@ -25,18 +27,10 @@ def open_snapchat():
         link = secondary_link
     if not link.exists():
         print(f"Shortcut niet gevonden: {link}")
-        return cfg
-    try:
-        os.startfile(str(link))
-    except Exception as exc:
-        print(f"Kon Snapchat niet starten: {exc}")
-        return cfg
+        return
+    os.startfile(str(link))
     time.sleep(mm.snap_delay(cfg, "startup_after_launch"))
-    try:
-        mm.close_spotlight(cfg)
-    except Exception:
-        pass
-    return cfg
+    mm.close_spotlight(cfg)
 
 
 def main():
@@ -52,12 +46,13 @@ def main():
     )
     mm.set_window_icon(win, mm.APP_ICON_SNAP)
     app._apply_theme(mark_dirty=False)
-    win.mode_var.set("story")
-    win._refresh_mode()
     win.deiconify()
     win.lift()
     win.focus_force()
-    win._start_story()
+    win.mode_var.set("combi")
+    win._refresh_mode()
+    win.combi_send_on_start.set(False)
+    win._start_combi()
     app.root.mainloop()
 
 
